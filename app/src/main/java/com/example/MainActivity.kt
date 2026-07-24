@@ -14,6 +14,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.logic.GameMode
+import com.example.ui.components.ParticleVictoryOverlay
 import com.example.ui.components.SynthwaveBackground
 import com.example.ui.screens.GameScreen
 import com.example.ui.screens.MenuScreen
@@ -106,11 +107,15 @@ class MainActivity : ComponentActivity() {
                     if (showSettingsDialog) {
                         SettingsDialog(
                             isSoundEnabled = viewModel.soundManager.isSoundEnabled,
+                            isMusicEnabled = viewModel.soundManager.isMusicEnabled,
                             isHapticsEnabled = viewModel.soundManager.isHapticsEnabled,
                             currentDifficulty = gameState.aiDifficulty,
                             currentGridSize = gameState.gridSize,
                             onToggleSound = { enabled ->
                                 viewModel.toggleSound(enabled)
+                            },
+                            onToggleMusic = { enabled ->
+                                viewModel.toggleMusic(enabled)
                             },
                             onToggleHaptics = { enabled ->
                                 viewModel.toggleHaptics(enabled)
@@ -130,8 +135,15 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // Game Over Result Modal Dialog
+                    // Game Over Result Modal Dialog & Particle Burst Overlay
                     if (gameState.isGameOver) {
+                        ParticleVictoryOverlay(
+                            isGameOver = gameState.isGameOver,
+                            winner = gameState.winner,
+                            isDraw = gameState.isDraw,
+                            modifier = Modifier.fillMaxSize()
+                        )
+
                         ResultDialog(
                             winner = gameState.winner,
                             isDraw = gameState.isDraw,

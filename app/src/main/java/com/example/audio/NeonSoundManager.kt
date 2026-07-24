@@ -1,6 +1,7 @@
 package com.example.audio
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.ToneGenerator
@@ -11,16 +12,14 @@ import android.os.VibratorManager
 import com.example.R
 
 class NeonSoundManager(context: Context) {
-    private val appContext: Context = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        context.applicationContext.createAttributionContext("default")
-    } else {
-        context.applicationContext
-    }
+    private val appContext: Context = context.applicationContext
 
     private var toneGenerator: ToneGenerator? = null
     private var mediaPlayer: MediaPlayer? = null
 
     var isSoundEnabled: Boolean = true
+
+    var isMusicEnabled: Boolean = true
         set(value) {
             field = value
             if (value) {
@@ -29,6 +28,7 @@ class NeonSoundManager(context: Context) {
                 pauseMusic()
             }
         }
+
     var isHapticsEnabled: Boolean = true
 
     private val vibrator: Vibrator? by lazy {
@@ -50,12 +50,24 @@ class NeonSoundManager(context: Context) {
     }
 
     fun startMusic() {
-        if (!isSoundEnabled) return
+        if (!isMusicEnabled) return
         try {
             if (mediaPlayer == null) {
-                mediaPlayer = MediaPlayer.create(appContext, R.raw.bg_synthwave)?.apply {
-                    isLooping = true
-                    setVolume(0.4f, 0.4f)
+                val afd = appContext.resources.openRawResourceFd(R.raw.bg_synthwave)
+                if (afd != null) {
+                    mediaPlayer = MediaPlayer().apply {
+                        setAudioAttributes(
+                            AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_GAME)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                                .build()
+                        )
+                        setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                        afd.close()
+                        isLooping = true
+                        setVolume(0.35f, 0.35f)
+                        prepare()
+                    }
                 }
             }
             if (mediaPlayer?.isPlaying == false) {
@@ -77,7 +89,7 @@ class NeonSoundManager(context: Context) {
     }
 
     fun resumeMusic() {
-        if (!isSoundEnabled) return
+        if (!isMusicEnabled) return
         try {
             if (mediaPlayer == null) {
                 startMusic()

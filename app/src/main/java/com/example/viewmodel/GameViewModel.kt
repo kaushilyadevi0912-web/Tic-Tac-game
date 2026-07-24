@@ -30,6 +30,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         viewModelScope.launch {
+            repository.musicEnabledFlow.collect { enabled ->
+                soundManager.isMusicEnabled = enabled
+            }
+        }
+        viewModelScope.launch {
             repository.hapticsEnabledFlow.collect { enabled ->
                 soundManager.isHapticsEnabled = enabled
             }
@@ -278,6 +283,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleSound(enabled: Boolean) {
         viewModelScope.launch {
             repository.setSoundEnabled(enabled)
+        }
+    }
+
+    fun toggleMusic(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setMusicEnabled(enabled)
         }
     }
 

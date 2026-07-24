@@ -21,10 +21,12 @@ import com.example.ui.theme.*
 @Composable
 fun SettingsDialog(
     isSoundEnabled: Boolean,
+    isMusicEnabled: Boolean,
     isHapticsEnabled: Boolean,
     currentDifficulty: AiDifficulty,
     currentGridSize: Int,
     onToggleSound: (Boolean) -> Unit,
+    onToggleMusic: (Boolean) -> Unit,
     onToggleHaptics: (Boolean) -> Unit,
     onSelectDifficulty: (AiDifficulty) -> Unit,
     onSelectGridSize: (Int) -> Unit,
@@ -54,7 +56,24 @@ fun SettingsDialog(
 
                 HorizontalDivider(color = NeonButtonBorder.copy(alpha = 0.3f))
 
-                // Sound Toggle
+                // Background Music Toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Background Music", color = Color.White, fontSize = 16.sp)
+                    Switch(
+                        checked = isMusicEnabled,
+                        onCheckedChange = onToggleMusic,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = NeonPlayerOrange
+                        )
+                    )
+                }
+
+                // Sound Effects Toggle
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,

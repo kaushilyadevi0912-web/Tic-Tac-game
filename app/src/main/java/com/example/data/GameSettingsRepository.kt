@@ -14,6 +14,7 @@ class GameSettingsRepository(private val context: Context) {
 
     private object PreferenceKeys {
         val SOUND_ENABLED = booleanPreferencesKey("sound_enabled")
+        val MUSIC_ENABLED = booleanPreferencesKey("music_enabled")
         val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
         val GRID_SIZE = intPreferencesKey("grid_size")
         val AI_DIFFICULTY = stringPreferencesKey("ai_difficulty")
@@ -26,6 +27,10 @@ class GameSettingsRepository(private val context: Context) {
 
     val soundEnabledFlow: Flow<Boolean> = context.dataStore.data.map {
         it[PreferenceKeys.SOUND_ENABLED] ?: true
+    }
+
+    val musicEnabledFlow: Flow<Boolean> = context.dataStore.data.map {
+        it[PreferenceKeys.MUSIC_ENABLED] ?: true
     }
 
     val hapticsEnabledFlow: Flow<Boolean> = context.dataStore.data.map {
@@ -64,6 +69,10 @@ class GameSettingsRepository(private val context: Context) {
 
     suspend fun setSoundEnabled(enabled: Boolean) {
         context.dataStore.edit { it[PreferenceKeys.SOUND_ENABLED] = enabled }
+    }
+
+    suspend fun setMusicEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[PreferenceKeys.MUSIC_ENABLED] = enabled }
     }
 
     suspend fun setHapticsEnabled(enabled: Boolean) {
