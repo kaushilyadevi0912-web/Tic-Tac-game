@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.audio.NeonSoundManager
 import com.example.data.GameSettingsRepository
 import com.example.logic.*
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +20,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _gameState = MutableStateFlow(GameState())
     val gameState: StateFlow<GameState> = _gameState.asStateFlow()
+
+    private var aiJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -60,7 +63,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun cancelAiJob() {
+        aiJob?.cancel()
+        aiJob = null
+    }
+
     private fun resetBoardForGridSize(size: Int) {
+        cancelAiJob()
         val totalCells = size * size
         val targetStreak = GameEngine.defaultStreakTarget(size)
         _gameState.value = _gameState.value.copy(
@@ -73,8 +82,19 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             winner = null,
             isDraw = false,
             hintCellIndex = null,
-            moveHistory = emptyList()
+            moveHistory = emptyList(),
+            isAiThinking = false
         )
+    }
+
+    fun onUserCellClick(index: Int) {
+        val current = _gameState.value
+        if (current.isGameOver || current.isAiThinking) return
+        if (current.gameMode == GameMode.VS_AI && current.activePlayer != Symbol.O) return
+        if (index < 0 || index >= current.board.size) return
+        if (current.board[index] != null) return
+
+        makeMove(index)
     }
 
     fun makeMove(index: Int) {
@@ -134,26 +154,34 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun triggerAiMove() {
-        viewModelScope.launch {
-            delay(350) // Natural thinking pause for AI
-            val state = _gameState.value
-            if (state.isGameOver || state.activePlayer != Symbol.X) return@launch
+        cancelAiJob()
+        _gameState.value = _gameState.value.copy(isAiThinking = true)
 
-            val aiMove = MinimaxAI.findBestMove(
-                board = state.board,
-                gridSize = state.gridSize,
-                aiSymbol = Symbol.X,
-                difficulty = state.aiDifficulty,
-                streakTarget = state.winningStreakTarget
-            )
+        aiJob = viewModelScope.launch {
+            try {
+                delay(400) // Natural thinking pause for AI
+                val state = _gameState.value
+                if (state.isGameOver || state.activePlayer != Symbol.X) return@launch
 
-            if (aiMove != -1) {
-                makeMove(aiMove)
+                val aiMove = MinimaxAI.findBestMove(
+                    board = state.board,
+                    gridSize = state.gridSize,
+                    aiSymbol = Symbol.X,
+                    difficulty = state.aiDifficulty,
+                    streakTarget = state.winningStreakTarget
+                )
+
+                if (aiMove != -1 && state.board[aiMove] == null) {
+                    makeMove(aiMove)
+                }
+            } finally {
+                _gameState.value = _gameState.value.copy(isAiThinking = false)
             }
         }
     }
 
     fun undoMove() {
+        cancelAiJob()
         val state = _gameState.value
         if (state.moveHistory.isEmpty()) return
 
@@ -185,13 +213,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             winner = null,
             isDraw = false,
             hintCellIndex = null,
-            moveHistory = newHistory
+            moveHistory = newHistory,
+            isAiThinking = false
         )
     }
 
     fun provideHint() {
         val state = _gameState.value
-        if (state.isGameOver) return
+        if (state.isGameOver || state.isAiThinking) return
 
         soundManager.playHint()
         val bestMove = MinimaxAI.findBestMove(
@@ -208,6 +237,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun restartRound() {
+        cancelAiJob()
         soundManager.playTap()
         val current = _gameState.value
         val totalCells = current.gridSize * current.gridSize
@@ -220,7 +250,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             isDraw = false,
             hintCellIndex = null,
             moveHistory = emptyList(),
-            currentRound = current.currentRound + 1
+            currentRound = current.currentRound + 1,
+            isAiThinking = false
         )
     }
 

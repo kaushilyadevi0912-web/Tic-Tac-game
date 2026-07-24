@@ -39,5 +39,6 @@ data class GameState(
     val gameMode: GameMode = GameMode.VS_AI,
     val aiDifficulty: AiDifficulty = AiDifficulty.HARD,
     val playerOIsHuman: Boolean = true,
-    val playerXIsHuman: Boolean = false
+    val playerXIsHuman: Boolean = false,
+    val isAiThinking: Boolean = false
 )

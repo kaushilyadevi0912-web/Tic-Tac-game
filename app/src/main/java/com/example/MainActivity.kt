@@ -80,7 +80,7 @@ class MainActivity : ComponentActivity() {
                                 GameScreen(
                                     gameState = gameState,
                                     onCellClick = { index ->
-                                        viewModel.makeMove(index)
+                                        viewModel.onUserCellClick(index)
                                     },
                                     onUndoClick = {
                                         viewModel.undoMove()

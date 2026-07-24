@@ -25,7 +25,8 @@ fun NeonVsHeader(
     playerOScore: Int,
     playerXScore: Int,
     gridSize: Int,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isAiThinking: Boolean = false
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "turn_pulse")
     val auraAlpha by infiniteTransition.animateFloat(
@@ -144,9 +145,11 @@ fun NeonVsHeader(
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = if (gameMode == GameMode.VS_AI) "AI" else "Player 2",
+                    text = if (gameMode == GameMode.VS_AI) {
+                        if (isAiThinking) "AI (Thinking...)" else "AI"
+                    } else "Player 2",
                     color = NeonPlayerCyan,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
                 )
             }

@@ -42,6 +42,7 @@ fun GameScreen(
             playerOScore = gameState.playerOScore,
             playerXScore = gameState.playerXScore,
             gridSize = gameState.gridSize,
+            isAiThinking = gameState.isAiThinking,
             modifier = Modifier.padding(horizontal = 16.dp)
         )
 
@@ -58,7 +59,11 @@ fun GameScreen(
                 board = gameState.board,
                 winningLine = gameState.winningLine,
                 hintCellIndex = gameState.hintCellIndex,
-                onCellClick = onCellClick
+                onCellClick = onCellClick,
+                isAiThinking = gameState.isAiThinking,
+                gameMode = gameState.gameMode,
+                activePlayer = gameState.activePlayer,
+                isGameOver = gameState.isGameOver
             )
         }
 

@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.example.logic.GameMode
 import com.example.logic.Symbol
 import com.example.logic.WinningLine
 import com.example.ui.theme.*
@@ -29,7 +30,11 @@ fun NeonBoard(
     winningLine: WinningLine?,
     hintCellIndex: Int?,
     onCellClick: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isAiThinking: Boolean = false,
+    gameMode: GameMode = GameMode.VS_AI,
+    activePlayer: Symbol = Symbol.O,
+    isGameOver: Boolean = false
 ) {
     BoxWithConstraints(
         modifier = modifier
@@ -80,6 +85,11 @@ fun NeonBoard(
                         val index = r * gridSize + c
                         val symbol = board.getOrNull(index)
                         val isHint = hintCellIndex == index
+                        val isCellClickable = !isAiThinking &&
+                                (gameMode != GameMode.VS_AI || activePlayer == Symbol.O) &&
+                                symbol == null &&
+                                !isGameOver &&
+                                winningLine == null
 
                         Box(
                             modifier = Modifier
@@ -87,6 +97,7 @@ fun NeonBoard(
                                 .fillMaxHeight()
                                 .testTag("cell_$index")
                                 .clickable(
+                                    enabled = isCellClickable,
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null,
                                     onClick = { onCellClick(index) }

@@ -11,7 +11,11 @@ import android.os.VibratorManager
 import com.example.R
 
 class NeonSoundManager(context: Context) {
-    private val appContext: Context = context.applicationContext
+    private val appContext: Context = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        context.applicationContext.createAttributionContext("default")
+    } else {
+        context.applicationContext
+    }
 
     private var toneGenerator: ToneGenerator? = null
     private var mediaPlayer: MediaPlayer? = null
