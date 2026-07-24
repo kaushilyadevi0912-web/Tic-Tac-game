@@ -1,0 +1,142 @@
+package com.example.ui.screens
+
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import com.example.logic.GameMode
+import com.example.logic.Symbol
+import com.example.ui.theme.*
+import kotlin.random.Random
+
+@Composable
+fun ResultDialog(
+    winner: Symbol?,
+    isDraw: Boolean,
+    gameMode: GameMode,
+    playerOScore: Int,
+    playerXScore: Int,
+    onPlayAgain: () -> Unit,
+    onMainMenu: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "confetti")
+    val animVal by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "confetti_anim"
+    )
+
+    val winnerTitle = when {
+        isDraw -> "IT'S A DRAW!"
+        winner == Symbol.O -> "PLAYER 1 WINS!"
+        winner == Symbol.X && gameMode == GameMode.VS_AI -> "AI WINS!"
+        else -> "PLAYER 2 WINS!"
+    }
+
+    val bannerColor = when {
+        isDraw -> NeonYellowHint
+        winner == Symbol.O -> NeonPlayerOrange
+        else -> NeonPlayerCyan
+    }
+
+    Dialog(onDismissRequest = { /* Modal, must tap button */ }) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .shadow(28.dp, RoundedCornerShape(26.dp), spotColor = bannerColor)
+                .clip(RoundedCornerShape(26.dp))
+                .background(Color(0xFF140D2E))
+                .border(3.dp, bannerColor, RoundedCornerShape(26.dp))
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            // Neon Sparkle Particles Canvas
+            Canvas(modifier = Modifier.matchParentSize()) {
+                val rnd = Random(42)
+                for (i in 0..18) {
+                    val px = rnd.nextFloat() * size.width
+                    val py = (rnd.nextFloat() * size.height + animVal * 120f) % size.height
+                    drawCircle(
+                        color = bannerColor.copy(alpha = 0.5f),
+                        radius = rnd.nextFloat() * 4f + 2f,
+                        center = Offset(px, py)
+                    )
+                }
+            }
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = winnerTitle,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Black,
+                    color = bannerColor
+                )
+
+                // Current Score Summary
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Player: $playerOScore", color = NeonPlayerOrange, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text("VS", color = Color.White, fontSize = 14.sp)
+                    Text(
+                        if (gameMode == GameMode.VS_AI) "AI: $playerXScore" else "Player 2: $playerXScore",
+                        color = NeonPlayerCyan,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Play Again Button
+                Button(
+                    onClick = onPlayAgain,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = bannerColor)
+                ) {
+                    Text("PLAY AGAIN", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+                }
+
+                // Main Menu Button
+                Button(
+                    onClick = onMainMenu,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0x33A200FF))
+                ) {
+                    Text("MAIN MENU", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
