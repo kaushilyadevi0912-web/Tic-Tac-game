@@ -9,6 +9,7 @@ data class OnlineRoomData(
     val playerHostId: String = "",
     val playerGuestId: String? = null,
     val activePlayer: String = "O", // "O" or "X"
+    val gridSize: Int = 3,
     val board: List<String> = List(9) { "" },
     val winner: String? = null,
     val isDraw: Boolean = false,

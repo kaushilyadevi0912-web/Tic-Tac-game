@@ -62,16 +62,19 @@ class FirebaseRealtimeManager(context: Context) {
 
     fun createRoom(
         roomCode: String,
+        gridSize: Int = 3,
         onSuccess: (OnlineRoomData) -> Unit,
         onError: (String) -> Unit
     ) {
+        val totalCells = gridSize * gridSize
         val room = OnlineRoomData(
             roomCode = roomCode,
             status = "WAITING",
             playerHostId = myPlayerId,
             playerGuestId = null,
             activePlayer = "O",
-            board = List(9) { "" },
+            gridSize = gridSize,
+            board = List(totalCells) { "" },
             winner = null,
             isDraw = false
         )
@@ -145,7 +148,7 @@ class FirebaseRealtimeManager(context: Context) {
                     return
                 }
 
-                if (room.playerGuestId != null && room.playerGuestId != myPlayerId) {
+                if (room.playerGuestId != null && room.playerGuestId.isNotEmpty() && room.status == "PLAYING" && room.playerGuestId != myPlayerId) {
                     onError("Room $roomCode is already full!")
                     return
                 }
@@ -153,7 +156,7 @@ class FirebaseRealtimeManager(context: Context) {
                 val updatedRoom = room.copy(playerGuestId = myPlayerId, status = "PLAYING")
                 notifyLocalFlow(roomCode, updatedRoom)
 
-                val updatedMap = mapOf(
+                val updatedMap = mapOf<String, Any?>(
                     "playerGuestId" to myPlayerId,
                     "status" to "PLAYING"
                 )
@@ -181,12 +184,20 @@ class FirebaseRealtimeManager(context: Context) {
             val roomRef = ref.child(roomCode)
             val listener = object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
+                    if (!snapshot.exists()) {
+                        inMemoryRooms.remove(roomCode)
+                        val f = inMemoryFlows[roomCode]
+                        if (f != null) f.value = null
+                        trySend(null)
+                        return
+                    }
                     val room = snapshot.getValue(OnlineRoomData::class.java)
                     if (room != null) {
                         notifyLocalFlow(roomCode, room)
                         trySend(room)
                     } else {
-                        trySend(flow.value)
+                        inMemoryRooms.remove(roomCode)
+                        trySend(null)
                     }
                 }
 
@@ -320,10 +331,28 @@ class FirebaseRealtimeManager(context: Context) {
         })
     }
 
-    fun leaveRoom(roomCode: String) {
-        inMemoryRooms.remove(roomCode)
-        inMemoryFlows.remove(roomCode)
-        val ref = roomsRef ?: return
-        ref.child(roomCode).removeValue()
+    fun leaveRoom(roomCode: String, isHost: Boolean) {
+        if (isHost) {
+            inMemoryRooms.remove(roomCode)
+            val f = inMemoryFlows.remove(roomCode)
+            if (f != null) f.value = null
+            val ref = roomsRef ?: return
+            ref.child(roomCode).removeValue()
+        } else {
+            val current = inMemoryRooms[roomCode]
+            if (current != null) {
+                val updated = current.copy(
+                    playerGuestId = null,
+                    status = "WAITING"
+                )
+                notifyLocalFlow(roomCode, updated)
+            }
+            val ref = roomsRef ?: return
+            val updates = mapOf<String, Any?>(
+                "playerGuestId" to null,
+                "status" to "WAITING"
+            )
+            ref.child(roomCode).updateChildren(updates)
+        }
     }
 }

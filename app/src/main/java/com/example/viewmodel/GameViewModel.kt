@@ -105,21 +105,25 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- ONLINE MULTIPLAYER ACTIONS ---
 
-    fun createOnlineRoom(onCodeGenerated: (String) -> Unit) {
+    fun createOnlineRoom(gridSize: Int = 3, onCodeGenerated: (String) -> Unit) {
         val roomCode = firebaseManager.generate3DigitCode()
+        val validSize = if (gridSize in 3..7) gridSize else 3
+        val totalCells = validSize * validSize
+        val targetStreak = GameEngine.defaultStreakTarget(validSize)
         viewModelScope.launch { repository.setGameMode(GameMode.ONLINE_MULTIPLAYER) }
         firebaseManager.createRoom(
             roomCode = roomCode,
+            gridSize = validSize,
             onSuccess = {
                 _gameState.value = _gameState.value.copy(
-                    gridSize = 3,
-                    winningStreakTarget = 3,
+                    gridSize = validSize,
+                    winningStreakTarget = targetStreak,
                     gameMode = GameMode.ONLINE_MULTIPLAYER,
                     onlineRoomCode = roomCode,
                     isOnlineHost = true,
                     myOnlineSymbol = Symbol.O,
                     onlineStatus = "Waiting for Player B (Code: $roomCode)...",
-                    board = List(9) { null },
+                    board = List(totalCells) { null },
                     activePlayer = Symbol.O,
                     isGameOver = false,
                     winner = null,
@@ -143,16 +147,20 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { repository.setGameMode(GameMode.ONLINE_MULTIPLAYER) }
         firebaseManager.joinRoom(
             roomCode = roomCode,
-            onSuccess = {
+            onSuccess = { roomData ->
+                val roomGridSize = if (roomData.gridSize in 3..7) roomData.gridSize else 3
+                val totalCells = roomGridSize * roomGridSize
+                val targetStreak = GameEngine.defaultStreakTarget(roomGridSize)
+
                 _gameState.value = _gameState.value.copy(
-                    gridSize = 3,
-                    winningStreakTarget = 3,
+                    gridSize = roomGridSize,
+                    winningStreakTarget = targetStreak,
                     gameMode = GameMode.ONLINE_MULTIPLAYER,
                     onlineRoomCode = roomCode,
                     isOnlineHost = false,
                     myOnlineSymbol = Symbol.X,
                     onlineStatus = "Connected to Room $roomCode!",
-                    board = List(9) { null },
+                    board = List(totalCells) { null },
                     activePlayer = Symbol.O,
                     isGameOver = false,
                     winner = null,
@@ -172,11 +180,39 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    fun leaveOnlineRoom() {
+        val current = _gameState.value
+        val roomCode = current.onlineRoomCode
+        if (roomCode != null) {
+            firebaseManager.leaveRoom(roomCode, isHost = current.isOnlineHost)
+            webRtcCallManager.stopCall()
+        }
+        onlineObserverJob?.cancel()
+        onlineObserverJob = null
+
+        _gameState.value = current.copy(
+            onlineRoomCode = null,
+            onlineStatus = "",
+            gameMode = GameMode.VS_PLAYER
+        )
+    }
+
     private fun startObservingOnlineRoom(roomCode: String) {
         onlineObserverJob?.cancel()
         onlineObserverJob = viewModelScope.launch {
             firebaseManager.observeRoom(roomCode).collect { roomData ->
-                if (roomData == null) return@collect
+                val current = _gameState.value
+                if (roomData == null) {
+                    if (current.gameMode == GameMode.ONLINE_MULTIPLAYER && current.onlineRoomCode == roomCode) {
+                        webRtcCallManager.stopCall()
+                        _gameState.value = current.copy(
+                            onlineRoomCode = null,
+                            onlineStatus = if (current.isOnlineHost) "" else "Host closed the room.",
+                            gameMode = GameMode.VS_PLAYER
+                        )
+                    }
+                    return@collect
+                }
                 updateFromOnlineRoomData(roomData)
             }
         }
@@ -184,16 +220,24 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun updateFromOnlineRoomData(roomData: OnlineRoomData) {
         val current = _gameState.value
-        val newBoard = roomData.board.map {
-            when (it) {
-                "O" -> Symbol.O
-                "X" -> Symbol.X
-                else -> null
+        val roomGridSize = if (roomData.gridSize in 3..7) roomData.gridSize else 3
+        val totalCells = roomGridSize * roomGridSize
+        val targetStreak = GameEngine.defaultStreakTarget(roomGridSize)
+
+        val newBoard = if (roomData.board.size == totalCells) {
+            roomData.board.map {
+                when (it) {
+                    "O" -> Symbol.O
+                    "X" -> Symbol.X
+                    else -> null
+                }
             }
+        } else {
+            List(totalCells) { null }
         }
 
         val activeSymbol = if (roomData.activePlayer == "X") Symbol.X else Symbol.O
-        val winningLine = GameEngine.checkWin(newBoard, 3, 3)
+        val winningLine = GameEngine.checkWin(newBoard, roomGridSize, targetStreak)
         val isDraw = roomData.isDraw || GameEngine.checkDraw(newBoard, winningLine)
         val winnerSymbol = when (roomData.winner) {
             "O" -> Symbol.O
@@ -247,6 +291,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         _gameState.value = current.copy(
+            gridSize = roomGridSize,
+            winningStreakTarget = targetStreak,
             board = newBoard,
             activePlayer = activeSymbol,
             winningLine = winningLine,
@@ -303,7 +349,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             newBoardList[index] = current.myOnlineSymbol
             val strBoard = newBoardList.map { it?.name ?: "" }
 
-            val winningLine = GameEngine.checkWin(newBoardList, 3, 3)
+            val winningLine = GameEngine.checkWin(newBoardList, current.gridSize, current.winningStreakTarget)
             val isDraw = GameEngine.checkDraw(newBoardList, winningLine)
             val winnerStr = winningLine?.winner?.name
             val nextPlayerStr = current.myOnlineSymbol.other().name
@@ -477,13 +523,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         cancelAiJob()
         soundManager.playTap()
         val current = _gameState.value
+        val totalCells = current.gridSize * current.gridSize
         if (current.gameMode == GameMode.ONLINE_MULTIPLAYER && current.onlineRoomCode != null) {
-            val emptyBoard = List(9) { "" }
+            val emptyBoard = List(totalCells) { "" }
             firebaseManager.makeMove(current.onlineRoomCode, emptyBoard, "O", null, false)
             return
         }
 
-        val totalCells = current.gridSize * current.gridSize
         _gameState.value = current.copy(
             board = List(totalCells) { null },
             activePlayer = Symbol.O,

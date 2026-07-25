@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -26,10 +27,12 @@ import com.example.ui.theme.*
 
 @Composable
 fun OnlineRoomDialog(
-    onHostRoom: ((String) -> Unit) -> Unit,
+    initialGridSize: Int = 3,
+    onHostRoom: (gridSize: Int, onCodeGenerated: (String) -> Unit) -> Unit,
     onJoinRoom: (String, () -> Unit, (String) -> Unit) -> Unit,
     onDismiss: () -> Unit
 ) {
+    var selectedGridSize by remember { mutableIntStateOf(if (initialGridSize in 3..7) initialGridSize else 3) }
     var roomCodeInput by remember { mutableStateOf("") }
     var generatedCode by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -42,11 +45,11 @@ fun OnlineRoomDialog(
             border = androidx.compose.foundation.BorderStroke(2.dp, NeonBoardBorder),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(12.dp)
         ) {
             Column(
                 modifier = Modifier
-                    .padding(24.dp),
+                    .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Row(
@@ -78,13 +81,57 @@ fun OnlineRoomDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 if (generatedCode == null) {
+                    // Board Option Selection
+                    Text(
+                        text = "SELECT BOARD OPTION",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = NeonTextMuted,
+                        letterSpacing = 1.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf(3, 4, 5, 6, 7).forEach { size ->
+                            val isSelected = selectedGridSize == size
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (isSelected) NeonPlayerCyan.copy(alpha = 0.25f) else Color(0x33140D2E))
+                                    .border(
+                                        width = if (isSelected) 2.dp else 1.dp,
+                                        color = if (isSelected) NeonPlayerCyan else NeonButtonBorder.copy(alpha = 0.4f),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .clickable { selectedGridSize = size }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "${size}x${size}",
+                                    color = if (isSelected) NeonPlayerCyan else Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
                     // Option 1: Create Room
                     Button(
                         onClick = {
-                            onHostRoom { code ->
+                            onHostRoom(selectedGridSize) { code ->
                                 generatedCode = code
                             }
                         },
@@ -92,13 +139,13 @@ fun OnlineRoomDialog(
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(52.dp)
+                            .height(50.dp)
                     ) {
                         Icon(Icons.Rounded.AddCircle, contentDescription = null, tint = Color.White)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "CREATE ROOM (Player A)",
-                            fontSize = 16.sp,
+                            text = "CREATE ${selectedGridSize}x${selectedGridSize} ROOM",
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
@@ -119,7 +166,7 @@ fun OnlineRoomDialog(
                     OutlinedTextField(
                         value = roomCodeInput,
                         onValueChange = { if (it.length <= 3) roomCodeInput = it },
-                        label = { Text("Enter 3-Digit Code", color = NeonTextMuted) },
+                        label = { Text("Enter 3-Digit Room Code", color = NeonTextMuted) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         colors = OutlinedTextFieldDefaults.colors(
@@ -159,7 +206,7 @@ fun OnlineRoomDialog(
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(52.dp)
+                            .height(50.dp)
                     ) {
                         if (isJoining) {
                             CircularProgressIndicator(
@@ -172,7 +219,7 @@ fun OnlineRoomDialog(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "JOIN ROOM (Player B)",
-                                fontSize = 16.sp,
+                                fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.Black
                             )
@@ -196,7 +243,7 @@ fun OnlineRoomDialog(
                         modifier = Modifier.padding(vertical = 12.dp)
                     ) {
                         Text(
-                            text = "ROOM CREATED!",
+                            text = "ROOM CREATED (${selectedGridSize}x${selectedGridSize})!",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = NeonPlayerCyan

@@ -37,6 +37,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.logic.GameMode
 import com.example.ui.components.ParticleVictoryOverlay
 import com.example.ui.components.SynthwaveBackground
 import com.example.ui.screens.GameScreen
@@ -44,11 +45,12 @@ import com.example.ui.screens.MenuScreen
 import com.example.ui.screens.OnlineRoomDialog
 import com.example.ui.screens.ResultDialog
 import com.example.ui.screens.SettingsDialog
+import com.example.ui.screens.SplashScreen
 import com.example.ui.theme.*
 import com.example.viewmodel.GameViewModel
 
 enum class Screen {
-    MENU, GAME
+    SPLASH, MENU, GAME
 }
 
 class MainActivity : ComponentActivity() {
@@ -62,7 +64,7 @@ class MainActivity : ComponentActivity() {
                 val viewModel: GameViewModel = viewModel()
                 val gameState by viewModel.gameState.collectAsStateWithLifecycle()
 
-                var currentScreen by remember { mutableStateOf(Screen.MENU) }
+                var currentScreen by remember { mutableStateOf(Screen.SPLASH) }
                 var showSettingsDialog by remember { mutableStateOf(false) }
                 var showOnlineRoomDialog by remember { mutableStateOf(false) }
                 var showMicPermissionDialog by remember { mutableStateOf(false) }
@@ -122,6 +124,13 @@ class MainActivity : ComponentActivity() {
                 Box(modifier = Modifier.fillMaxSize()) {
                     SynthwaveBackground {
                         when (currentScreen) {
+                            Screen.SPLASH -> {
+                                SplashScreen(
+                                    onSplashFinished = {
+                                        currentScreen = Screen.MENU
+                                    }
+                                )
+                            }
                             Screen.MENU -> {
                                 MenuScreen(
                                     currentGridSize = gameState.gridSize,
@@ -172,6 +181,9 @@ class MainActivity : ComponentActivity() {
                                         viewModel.restartRound()
                                     },
                                     onBackClick = {
+                                        if (gameState.gameMode == GameMode.ONLINE_MULTIPLAYER) {
+                                            viewModel.leaveOnlineRoom()
+                                        }
                                         currentScreen = Screen.MENU
                                     },
                                     onOpenSettings = {
@@ -185,8 +197,9 @@ class MainActivity : ComponentActivity() {
                     // Online Multiplayer Room Creation/Join Modal Dialog
                     if (showOnlineRoomDialog) {
                         OnlineRoomDialog(
-                            onHostRoom = { onCodeGenerated ->
-                                viewModel.createOnlineRoom { code ->
+                            initialGridSize = gameState.gridSize,
+                            onHostRoom = { selectedGridSize, onCodeGenerated ->
+                                viewModel.createOnlineRoom(selectedGridSize) { code ->
                                     onCodeGenerated(code)
                                     currentScreen = Screen.GAME
                                 }
@@ -258,6 +271,9 @@ class MainActivity : ComponentActivity() {
                                 viewModel.restartRound()
                             },
                             onMainMenu = {
+                                if (gameState.gameMode == GameMode.ONLINE_MULTIPLAYER) {
+                                    viewModel.leaveOnlineRoom()
+                                }
                                 viewModel.restartRound()
                                 currentScreen = Screen.MENU
                             }
