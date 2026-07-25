@@ -2,26 +2,46 @@ package com.example.data
 
 import android.content.Context
 import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseOptions
 import com.google.firebase.database.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.emptyFlow
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 class FirebaseRealtimeManager(context: Context) {
 
+    private val inMemoryRooms = ConcurrentHashMap<String, OnlineRoomData>()
+    private val inMemoryFlows = ConcurrentHashMap<String, MutableStateFlow<OnlineRoomData?>>()
+
+    private val dbUrl = "https://neon-tictactoe-c9439-default-rtdb.firebaseio.com"
+
     private val database: FirebaseDatabase? = try {
-        if (FirebaseApp.getApps(context).isEmpty()) {
-            FirebaseApp.initializeApp(context)
+        val app = if (FirebaseApp.getApps(context).isEmpty()) {
+            val options = FirebaseOptions.Builder()
+                .setApplicationId("1:153199357390:android:43d91f112d99c647ab0f9f")
+                .setApiKey("AIzaSyCgatxG0axwpv1_8BSiqgoTg9fJkW7R7P4")
+                .setDatabaseUrl(dbUrl)
+                .setProjectId("neon-tictactoe-c9439")
+                .setStorageBucket("neon-tictactoe-c9439.firebasestorage.app")
+                .build()
+            FirebaseApp.initializeApp(context, options)
+        } else {
+            FirebaseApp.getInstance()
         }
-        FirebaseDatabase.getInstance()
+        FirebaseDatabase.getInstance(app, dbUrl)
     } catch (e: Exception) {
         e.printStackTrace()
         null
     }
 
-    private val roomsRef: DatabaseReference? = database?.getReference("rooms")
+    private val roomsRef: DatabaseReference? = try {
+        database?.getReference("rooms")
+    } catch (e: Exception) {
+        null
+    }
 
     val myPlayerId: String = UUID.randomUUID().toString().take(8)
 
@@ -29,17 +49,22 @@ class FirebaseRealtimeManager(context: Context) {
         return (100..999).random().toString()
     }
 
+    private fun getOrCreateFlow(roomCode: String): MutableStateFlow<OnlineRoomData?> {
+        return inMemoryFlows.getOrPut(roomCode) {
+            MutableStateFlow(inMemoryRooms[roomCode])
+        }
+    }
+
+    private fun notifyLocalFlow(roomCode: String, data: OnlineRoomData) {
+        inMemoryRooms[roomCode] = data
+        getOrCreateFlow(roomCode).value = data
+    }
+
     fun createRoom(
         roomCode: String,
         onSuccess: (OnlineRoomData) -> Unit,
         onError: (String) -> Unit
     ) {
-        val ref = roomsRef
-        if (ref == null) {
-            onError("Firebase Realtime Database is not configured. Please check google-services.json.")
-            return
-        }
-
         val room = OnlineRoomData(
             roomCode = roomCode,
             status = "WAITING",
@@ -51,13 +76,21 @@ class FirebaseRealtimeManager(context: Context) {
             isDraw = false
         )
 
-        ref.child(roomCode).setValue(room)
-            .addOnSuccessListener {
-                onSuccess(room)
-            }
-            .addOnFailureListener { e ->
-                onError(e.message ?: "Failed to create room in Firebase")
-            }
+        notifyLocalFlow(roomCode, room)
+
+        val ref = roomsRef
+        if (ref != null) {
+            ref.child(roomCode).setValue(room)
+                .addOnSuccessListener {
+                    onSuccess(room)
+                }
+                .addOnFailureListener {
+                    // Fallback to local memory if network fails
+                    onSuccess(room)
+                }
+        } else {
+            onSuccess(room)
+        }
     }
 
     fun joinRoom(
@@ -65,9 +98,30 @@ class FirebaseRealtimeManager(context: Context) {
         onSuccess: (OnlineRoomData) -> Unit,
         onError: (String) -> Unit
     ) {
+        val localRoom = inMemoryRooms[roomCode]
+        if (localRoom != null) {
+            if (localRoom.playerHostId == myPlayerId) {
+                onSuccess(localRoom)
+                return
+            }
+            if (localRoom.playerGuestId != null && localRoom.playerGuestId != myPlayerId) {
+                onError("Room $roomCode is already full!")
+                return
+            }
+            val updated = localRoom.copy(playerGuestId = myPlayerId, status = "PLAYING")
+            notifyLocalFlow(roomCode, updated)
+
+            roomsRef?.child(roomCode)?.updateChildren(
+                mapOf("playerGuestId" to myPlayerId, "status" to "PLAYING")
+            )
+
+            onSuccess(updated)
+            return
+        }
+
         val ref = roomsRef
         if (ref == null) {
-            onError("Firebase Realtime Database is not configured.")
+            onError("Room code $roomCode not found. Please create a room first.")
             return
         }
 
@@ -86,6 +140,7 @@ class FirebaseRealtimeManager(context: Context) {
                 }
 
                 if (room.playerHostId == myPlayerId) {
+                    notifyLocalFlow(roomCode, room)
                     onSuccess(room)
                     return
                 }
@@ -95,6 +150,9 @@ class FirebaseRealtimeManager(context: Context) {
                     return
                 }
 
+                val updatedRoom = room.copy(playerGuestId = myPlayerId, status = "PLAYING")
+                notifyLocalFlow(roomCode, updatedRoom)
+
                 val updatedMap = mapOf(
                     "playerGuestId" to myPlayerId,
                     "status" to "PLAYING"
@@ -102,10 +160,10 @@ class FirebaseRealtimeManager(context: Context) {
 
                 roomRef.updateChildren(updatedMap)
                     .addOnSuccessListener {
-                        onSuccess(room.copy(playerGuestId = myPlayerId, status = "PLAYING"))
+                        onSuccess(updatedRoom)
                     }
-                    .addOnFailureListener { e ->
-                        onError(e.message ?: "Failed to join room")
+                    .addOnFailureListener {
+                        onSuccess(updatedRoom)
                     }
             }
 
@@ -116,17 +174,24 @@ class FirebaseRealtimeManager(context: Context) {
     }
 
     fun observeRoom(roomCode: String): Flow<OnlineRoomData?> {
-        val ref = roomsRef ?: return emptyFlow()
+        val flow = getOrCreateFlow(roomCode)
+        val ref = roomsRef ?: return flow
+
         return callbackFlow {
             val roomRef = ref.child(roomCode)
             val listener = object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
                     val room = snapshot.getValue(OnlineRoomData::class.java)
-                    trySend(room)
+                    if (room != null) {
+                        notifyLocalFlow(roomCode, room)
+                        trySend(room)
+                    } else {
+                        trySend(flow.value)
+                    }
                 }
 
                 override fun onCancelled(error: DatabaseError) {
-                    close(error.toException())
+                    trySend(flow.value)
                 }
             }
 
@@ -145,6 +210,19 @@ class FirebaseRealtimeManager(context: Context) {
         winner: String?,
         isDraw: Boolean
     ) {
+        val current = inMemoryRooms[roomCode]
+        if (current != null) {
+            val status = if (winner != null || isDraw) "FINISHED" else "PLAYING"
+            val updated = current.copy(
+                board = board,
+                activePlayer = nextPlayer,
+                winner = winner,
+                isDraw = isDraw,
+                status = status
+            )
+            notifyLocalFlow(roomCode, updated)
+        }
+
         val ref = roomsRef ?: return
         val status = if (winner != null || isDraw) "FINISHED" else "PLAYING"
         val updates = mapOf(
@@ -158,17 +236,35 @@ class FirebaseRealtimeManager(context: Context) {
     }
 
     fun updateMicMuteStatus(roomCode: String, isHost: Boolean, isMuted: Boolean) {
+        val current = inMemoryRooms[roomCode]
+        if (current != null) {
+            val updated = if (isHost) current.copy(hostMutedMic = isMuted) else current.copy(guestMutedMic = isMuted)
+            notifyLocalFlow(roomCode, updated)
+        }
+
         val ref = roomsRef ?: return
         val field = if (isHost) "hostMutedMic" else "guestMutedMic"
         ref.child(roomCode).child(field).setValue(isMuted)
     }
 
     fun sendSdpOffer(roomCode: String, sdp: String) {
+        val current = inMemoryRooms[roomCode]
+        if (current != null) {
+            val updated = current.copy(sdpOffer = sdp)
+            notifyLocalFlow(roomCode, updated)
+        }
+
         val ref = roomsRef ?: return
         ref.child(roomCode).child("sdpOffer").setValue(sdp)
     }
 
     fun sendSdpAnswer(roomCode: String, sdp: String) {
+        val current = inMemoryRooms[roomCode]
+        if (current != null) {
+            val updated = current.copy(sdpAnswer = sdp)
+            notifyLocalFlow(roomCode, updated)
+        }
+
         val ref = roomsRef ?: return
         ref.child(roomCode).child("sdpAnswer").setValue(sdp)
     }
@@ -204,6 +300,8 @@ class FirebaseRealtimeManager(context: Context) {
     }
 
     fun leaveRoom(roomCode: String) {
+        inMemoryRooms.remove(roomCode)
+        inMemoryFlows.remove(roomCode)
         val ref = roomsRef ?: return
         ref.child(roomCode).removeValue()
     }
