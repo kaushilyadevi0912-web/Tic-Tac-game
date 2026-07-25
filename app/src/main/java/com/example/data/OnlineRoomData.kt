@@ -15,5 +15,6 @@ data class OnlineRoomData(
     val hostMutedMic: Boolean = false,
     val guestMutedMic: Boolean = false,
     val sdpOffer: String? = null,
-    val sdpAnswer: String? = null
+    val sdpAnswer: String? = null,
+    val chatMessages: Map<String, Map<String, String>> = emptyMap()
 )

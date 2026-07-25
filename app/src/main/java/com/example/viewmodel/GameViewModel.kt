@@ -59,7 +59,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             repository.gameModeFlow.collect { mode ->
-                _gameState.value = _gameState.value.copy(gameMode = mode)
+                // Do not override ONLINE_MULTIPLAYER if an online session is active
+                val current = _gameState.value
+                if (current.gameMode == GameMode.ONLINE_MULTIPLAYER && current.onlineRoomCode != null && mode != GameMode.ONLINE_MULTIPLAYER) {
+                    return@collect
+                }
+                _gameState.value = current.copy(gameMode = mode)
             }
         }
         viewModelScope.launch {
@@ -102,6 +107,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun createOnlineRoom(onCodeGenerated: (String) -> Unit) {
         val roomCode = firebaseManager.generate3DigitCode()
+        viewModelScope.launch { repository.setGameMode(GameMode.ONLINE_MULTIPLAYER) }
         firebaseManager.createRoom(
             roomCode = roomCode,
             onSuccess = {
@@ -112,12 +118,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     onlineRoomCode = roomCode,
                     isOnlineHost = true,
                     myOnlineSymbol = Symbol.O,
-                    onlineStatus = "Waiting for Player B to join (Code: $roomCode)...",
+                    onlineStatus = "Waiting for Player B (Code: $roomCode)...",
                     board = List(9) { null },
                     activePlayer = Symbol.O,
                     isGameOver = false,
                     winner = null,
-                    isDraw = false
+                    isDraw = false,
+                    chatMessages = emptyList(),
+                    isChatOpen = false,
+                    unreadChatCount = 0,
+                    latestChatToast = null
                 )
                 startObservingOnlineRoom(roomCode)
                 webRtcCallManager.startCall(roomCode, isHost = true)
@@ -130,6 +140,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun joinOnlineRoom(roomCode: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch { repository.setGameMode(GameMode.ONLINE_MULTIPLAYER) }
         firebaseManager.joinRoom(
             roomCode = roomCode,
             onSuccess = {
@@ -145,7 +156,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     activePlayer = Symbol.O,
                     isGameOver = false,
                     winner = null,
-                    isDraw = false
+                    isDraw = false,
+                    chatMessages = emptyList(),
+                    isChatOpen = false,
+                    unreadChatCount = 0,
+                    latestChatToast = null
                 )
                 startObservingOnlineRoom(roomCode)
                 webRtcCallManager.startCall(roomCode, isHost = false)
@@ -196,6 +211,41 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             else -> "OPPONENT'S TURN (${activeSymbol.name})"
         }
 
+        // Parse Chat Messages
+        val parsedMessages = roomData.chatMessages.values.mapNotNull { msgMap ->
+            val id = msgMap["id"] ?: return@mapNotNull null
+            val senderStr = msgMap["sender"] ?: "O"
+            val text = msgMap["text"] ?: return@mapNotNull null
+            val ts = msgMap["timestamp"]?.toLongOrNull() ?: 0L
+            val symbol = if (senderStr == "X") Symbol.X else Symbol.O
+            ChatMessage(
+                id = id,
+                senderName = if (symbol == current.myOnlineSymbol) "You" else "Opponent (${symbol.name})",
+                senderSymbol = symbol,
+                text = text,
+                timestamp = ts
+            )
+        }.sortedBy { it.timestamp }
+
+        val previousCount = current.chatMessages.size
+        val newCount = parsedMessages.size
+        val hasNewMessages = newCount > previousCount
+
+        val unread = if (hasNewMessages && !current.isChatOpen) {
+            current.unreadChatCount + (newCount - previousCount)
+        } else if (current.isChatOpen) {
+            0
+        } else {
+            current.unreadChatCount
+        }
+
+        val latestToast = if (hasNewMessages && parsedMessages.isNotEmpty()) {
+            val lastMsg = parsedMessages.last()
+            if (lastMsg.senderSymbol != current.myOnlineSymbol) lastMsg else current.latestChatToast
+        } else {
+            current.latestChatToast
+        }
+
         _gameState.value = current.copy(
             board = newBoard,
             activePlayer = activeSymbol,
@@ -204,8 +254,33 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             winner = winnerSymbol,
             isDraw = isDraw,
             onlineStatus = statusText,
-            opponentMutedMic = opponentMuted
+            opponentMutedMic = opponentMuted,
+            chatMessages = parsedMessages,
+            unreadChatCount = unread,
+            latestChatToast = latestToast
         )
+    }
+
+    fun sendChatMessage(text: String) {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return
+        val current = _gameState.value
+        val roomCode = current.onlineRoomCode ?: return
+        val mySymbolStr = current.myOnlineSymbol.name
+        firebaseManager.sendChatMessage(roomCode, mySymbolStr, trimmed)
+    }
+
+    fun toggleChatWindow() {
+        val current = _gameState.value
+        val open = !current.isChatOpen
+        _gameState.value = current.copy(
+            isChatOpen = open,
+            unreadChatCount = if (open) 0 else current.unreadChatCount
+        )
+    }
+
+    fun clearChatToast() {
+        _gameState.value = _gameState.value.copy(latestChatToast = null)
     }
 
     fun toggleMicrophone() {

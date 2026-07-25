@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.rounded.QuestionAnswer
 import com.example.logic.GameMode
 import com.example.logic.GameState
 import com.example.ui.components.NeonBoard
@@ -35,6 +36,9 @@ fun GameScreen(
     isSoundEnabled: Boolean,
     onToggleSound: () -> Unit,
     onToggleMic: () -> Unit,
+    onToggleChat: () -> Unit,
+    onSendChatMessage: (String) -> Unit,
+    onDismissChatToast: () -> Unit,
     onCellClick: (Int) -> Unit,
     onUndoClick: () -> Unit,
     onHintClick: () -> Unit,
@@ -43,103 +47,151 @@ fun GameScreen(
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(bottom = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
-        // Top Bar
-        NeonTopBar(
-            onBackClick = onBackClick,
-            onSettingsClick = onOpenSettings
-        )
-
-        // Audio & Voice Chat Controls Bar (Mute/Unmute Game SFX and Microphone)
-        Row(
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxSize()
+                .padding(bottom = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Mute / Unmute Game Sound Effects
-            AudioControlButton(
-                isMuted = !isSoundEnabled,
-                activeIcon = Icons.Rounded.VolumeUp,
-                mutedIcon = Icons.Rounded.VolumeOff,
-                label = if (isSoundEnabled) "Sound On" else "Sound Off",
-                activeColor = NeonPlayerCyan,
-                onClick = onToggleSound
+            // Top Bar
+            NeonTopBar(
+                onBackClick = onBackClick,
+                onSettingsClick = onOpenSettings
             )
 
-            if (gameState.gameMode == GameMode.ONLINE_MULTIPLAYER) {
-                // Online Room Code & Status Badge
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "ROOM: ${gameState.onlineRoomCode ?: "---"}",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Black,
-                        color = NeonPlayerOrange
-                    )
-                    Text(
-                        text = gameState.onlineStatus,
-                        fontSize = 11.sp,
-                        color = Color.White.copy(alpha = 0.8f)
+            // Audio & Voice / Chat Controls Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Mute / Unmute Game Sound Effects
+                AudioControlButton(
+                    isMuted = !isSoundEnabled,
+                    activeIcon = Icons.Rounded.VolumeUp,
+                    mutedIcon = Icons.Rounded.VolumeOff,
+                    label = if (isSoundEnabled) "Sound On" else "Sound Off",
+                    activeColor = NeonPlayerCyan,
+                    onClick = onToggleSound
+                )
+
+                if (gameState.gameMode == GameMode.ONLINE_MULTIPLAYER) {
+                    // Chat Button with Unread Badge
+                    Box {
+                        AudioControlButton(
+                            isMuted = false,
+                            activeIcon = Icons.Rounded.QuestionAnswer,
+                            mutedIcon = Icons.Rounded.QuestionAnswer,
+                            label = "Chat",
+                            activeColor = NeonPlayerCyan,
+                            onClick = onToggleChat
+                        )
+
+                        if (gameState.unreadChatCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .offset(x = 4.dp, y = (-4).dp)
+                                    .size(18.dp)
+                                    .background(NeonPlayerRed, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = gameState.unreadChatCount.toString(),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+
+                    // Mute / Unmute WebRTC Voice Chat Microphone
+                    AudioControlButton(
+                        isMuted = gameState.isMicMuted,
+                        activeIcon = Icons.Rounded.Mic,
+                        mutedIcon = Icons.Rounded.MicOff,
+                        label = if (!gameState.isMicMuted) "Mic On" else "Mic Muted",
+                        activeColor = NeonPlayerOrange,
+                        onClick = onToggleMic
                     )
                 }
+            }
 
-                // Mute / Unmute WebRTC Voice Chat Microphone
-                AudioControlButton(
-                    isMuted = gameState.isMicMuted,
-                    activeIcon = Icons.Rounded.Mic,
-                    mutedIcon = Icons.Rounded.MicOff,
-                    label = if (!gameState.isMicMuted) "Mic On" else "Mic Muted",
-                    activeColor = NeonPlayerOrange,
-                    onClick = onToggleMic
+            if (gameState.gameMode == GameMode.ONLINE_MULTIPLAYER) {
+                // Online Status Text
+                Text(
+                    text = "ROOM ${gameState.onlineRoomCode ?: "---"} • ${gameState.onlineStatus}",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = NeonPlayerOrange,
+                    modifier = Modifier.padding(vertical = 2.dp)
+                )
+            }
+
+            // Player vs AI / Online Header
+            NeonVsHeader(
+                activePlayer = gameState.activePlayer,
+                gameMode = gameState.gameMode,
+                playerOScore = gameState.playerOScore,
+                playerXScore = gameState.playerXScore,
+                gridSize = gameState.gridSize,
+                isAiThinking = gameState.isAiThinking,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+
+            // Central Game Board
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                NeonBoard(
+                    gridSize = gameState.gridSize,
+                    board = gameState.board,
+                    winningLine = gameState.winningLine,
+                    hintCellIndex = gameState.hintCellIndex,
+                    onCellClick = onCellClick,
+                    isAiThinking = gameState.isAiThinking,
+                    gameMode = gameState.gameMode,
+                    activePlayer = gameState.activePlayer,
+                    isGameOver = gameState.isGameOver
+                )
+            }
+
+            // Bottom Controls Bar (Undo ↶, Hint 💡, Restart 🌀)
+            NeonBottomBar(
+                onUndoClick = onUndoClick,
+                onHintClick = onHintClick,
+                onRestartClick = onRestartClick
+            )
+        }
+
+        // Floating Toast for Incoming Opponent Message
+        gameState.latestChatToast?.let { toastMsg ->
+            if (!gameState.isChatOpen) {
+                FloatingChatToast(
+                    message = toastMsg,
+                    onDismiss = onDismissChatToast
                 )
             }
         }
 
-        // Player vs AI / Online Header
-        NeonVsHeader(
-            activePlayer = gameState.activePlayer,
-            gameMode = gameState.gameMode,
-            playerOScore = gameState.playerOScore,
-            playerXScore = gameState.playerXScore,
-            gridSize = gameState.gridSize,
-            isAiThinking = gameState.isAiThinking,
-            modifier = Modifier.padding(horizontal = 16.dp)
-        )
-
-        // Central Game Board
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 8.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            NeonBoard(
-                gridSize = gameState.gridSize,
-                board = gameState.board,
-                winningLine = gameState.winningLine,
-                hintCellIndex = gameState.hintCellIndex,
-                onCellClick = onCellClick,
-                isAiThinking = gameState.isAiThinking,
-                gameMode = gameState.gameMode,
-                activePlayer = gameState.activePlayer,
-                isGameOver = gameState.isGameOver
+        // Chat Dialog Modal
+        if (gameState.isChatOpen) {
+            ChatDialog(
+                messages = gameState.chatMessages,
+                mySymbol = gameState.myOnlineSymbol,
+                onSendMessage = onSendChatMessage,
+                onDismiss = onToggleChat
             )
         }
-
-        // Bottom Controls Bar (Undo ↶, Hint 💡, Restart 🌀)
-        NeonBottomBar(
-            onUndoClick = onUndoClick,
-            onHintClick = onHintClick,
-            onRestartClick = onRestartClick
-        )
     }
 }
 

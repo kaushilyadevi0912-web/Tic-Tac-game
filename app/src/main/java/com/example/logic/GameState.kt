@@ -21,6 +21,14 @@ data class WinningLine(
     val winningIndices: List<Int>
 )
 
+data class ChatMessage(
+    val id: String = "",
+    val senderName: String = "",
+    val senderSymbol: Symbol = Symbol.O,
+    val text: String = "",
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 data class GameState(
     val gridSize: Int = 3,
     val winningStreakTarget: Int = 3,
@@ -48,5 +56,11 @@ data class GameState(
     val myOnlineSymbol: Symbol = Symbol.O,
     val onlineStatus: String = "",
     val isMicMuted: Boolean = false,
-    val opponentMutedMic: Boolean = false
+    val opponentMutedMic: Boolean = false,
+
+    // Chat Fields
+    val chatMessages: List<ChatMessage> = emptyList(),
+    val isChatOpen: Boolean = false,
+    val unreadChatCount: Int = 0,
+    val latestChatToast: ChatMessage? = null
 )

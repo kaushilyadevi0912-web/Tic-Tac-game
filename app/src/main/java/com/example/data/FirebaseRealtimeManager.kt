@@ -269,6 +269,27 @@ class FirebaseRealtimeManager(context: Context) {
         ref.child(roomCode).child("sdpAnswer").setValue(sdp)
     }
 
+    fun sendChatMessage(roomCode: String, senderSymbol: String, text: String) {
+        val msgId = "msg_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(4)}"
+        val messageData = mapOf(
+            "id" to msgId,
+            "sender" to senderSymbol,
+            "text" to text,
+            "timestamp" to System.currentTimeMillis().toString()
+        )
+
+        val current = inMemoryRooms[roomCode]
+        if (current != null) {
+            val updatedChat = current.chatMessages.toMutableMap()
+            updatedChat[msgId] = messageData
+            val updated = current.copy(chatMessages = updatedChat)
+            notifyLocalFlow(roomCode, updated)
+        }
+
+        val ref = roomsRef ?: return
+        ref.child(roomCode).child("chatMessages").child(msgId).setValue(messageData)
+    }
+
     fun sendIceCandidate(roomCode: String, isHost: Boolean, candidateData: Map<String, Any>) {
         val ref = roomsRef ?: return
         val nodeName = if (isHost) "hostIceCandidates" else "guestIceCandidates"
