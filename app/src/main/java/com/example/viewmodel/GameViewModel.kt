@@ -4,7 +4,10 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.audio.NeonSoundManager
+import com.example.audio.WebRtcAudioCallManager
+import com.example.data.FirebaseRealtimeManager
 import com.example.data.GameSettingsRepository
+import com.example.data.OnlineRoomData
 import com.example.logic.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -17,11 +20,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = GameSettingsRepository(application)
     val soundManager = NeonSoundManager(application)
+    val firebaseManager = FirebaseRealtimeManager(application)
+    val webRtcCallManager = WebRtcAudioCallManager(application, firebaseManager)
 
     private val _gameState = MutableStateFlow(GameState())
     val gameState: StateFlow<GameState> = _gameState.asStateFlow()
 
     private var aiJob: Job? = null
+    private var onlineObserverJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -41,7 +47,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             repository.gridSizeFlow.collect { size ->
-                if (_gameState.value.gridSize != size) {
+                if (_gameState.value.gridSize != size && _gameState.value.gameMode != GameMode.ONLINE_MULTIPLAYER) {
                     resetBoardForGridSize(size)
                 }
             }
@@ -92,13 +98,155 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    // --- ONLINE MULTIPLAYER ACTIONS ---
+
+    fun createOnlineRoom(onCodeGenerated: (String) -> Unit) {
+        val roomCode = firebaseManager.generate3DigitCode()
+        firebaseManager.createRoom(
+            roomCode = roomCode,
+            onSuccess = {
+                _gameState.value = _gameState.value.copy(
+                    gridSize = 3,
+                    winningStreakTarget = 3,
+                    gameMode = GameMode.ONLINE_MULTIPLAYER,
+                    onlineRoomCode = roomCode,
+                    isOnlineHost = true,
+                    myOnlineSymbol = Symbol.O,
+                    onlineStatus = "Waiting for Player B to join (Code: $roomCode)...",
+                    board = List(9) { null },
+                    activePlayer = Symbol.O,
+                    isGameOver = false,
+                    winner = null,
+                    isDraw = false
+                )
+                startObservingOnlineRoom(roomCode)
+                webRtcCallManager.startCall(roomCode, isHost = true)
+                onCodeGenerated(roomCode)
+            },
+            onError = { err ->
+                _gameState.value = _gameState.value.copy(onlineStatus = "Error: $err")
+            }
+        )
+    }
+
+    fun joinOnlineRoom(roomCode: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        firebaseManager.joinRoom(
+            roomCode = roomCode,
+            onSuccess = {
+                _gameState.value = _gameState.value.copy(
+                    gridSize = 3,
+                    winningStreakTarget = 3,
+                    gameMode = GameMode.ONLINE_MULTIPLAYER,
+                    onlineRoomCode = roomCode,
+                    isOnlineHost = false,
+                    myOnlineSymbol = Symbol.X,
+                    onlineStatus = "Connected to Room $roomCode!",
+                    board = List(9) { null },
+                    activePlayer = Symbol.O,
+                    isGameOver = false,
+                    winner = null,
+                    isDraw = false
+                )
+                startObservingOnlineRoom(roomCode)
+                webRtcCallManager.startCall(roomCode, isHost = false)
+                onSuccess()
+            },
+            onError = { err ->
+                onError(err)
+            }
+        )
+    }
+
+    private fun startObservingOnlineRoom(roomCode: String) {
+        onlineObserverJob?.cancel()
+        onlineObserverJob = viewModelScope.launch {
+            firebaseManager.observeRoom(roomCode).collect { roomData ->
+                if (roomData == null) return@collect
+                updateFromOnlineRoomData(roomData)
+            }
+        }
+    }
+
+    private fun updateFromOnlineRoomData(roomData: OnlineRoomData) {
+        val current = _gameState.value
+        val newBoard = roomData.board.map {
+            when (it) {
+                "O" -> Symbol.O
+                "X" -> Symbol.X
+                else -> null
+            }
+        }
+
+        val activeSymbol = if (roomData.activePlayer == "X") Symbol.X else Symbol.O
+        val winningLine = GameEngine.checkWin(newBoard, 3, 3)
+        val isDraw = roomData.isDraw || GameEngine.checkDraw(newBoard, winningLine)
+        val winnerSymbol = when (roomData.winner) {
+            "O" -> Symbol.O
+            "X" -> Symbol.X
+            else -> winningLine?.winner
+        }
+        val isGameOver = winnerSymbol != null || isDraw
+
+        val opponentMuted = if (current.isOnlineHost) roomData.guestMutedMic else roomData.hostMutedMic
+
+        val statusText = when {
+            roomData.status == "WAITING" -> "Waiting for Player B (Code: ${roomData.roomCode})..."
+            isGameOver -> if (winnerSymbol != null) "Winner: Player ${winnerSymbol.name}!" else "Draw Game!"
+            activeSymbol == current.myOnlineSymbol -> "YOUR TURN (${current.myOnlineSymbol.name})"
+            else -> "OPPONENT'S TURN (${activeSymbol.name})"
+        }
+
+        _gameState.value = current.copy(
+            board = newBoard,
+            activePlayer = activeSymbol,
+            winningLine = winningLine,
+            isGameOver = isGameOver,
+            winner = winnerSymbol,
+            isDraw = isDraw,
+            onlineStatus = statusText,
+            opponentMutedMic = opponentMuted
+        )
+    }
+
+    fun toggleMicrophone() {
+        webRtcCallManager.toggleMicrophone { muted ->
+            _gameState.value = _gameState.value.copy(isMicMuted = muted)
+        }
+    }
+
     fun onUserCellClick(index: Int) {
         val current = _gameState.value
         if (current.isGameOver || current.isAiThinking) return
-        if (current.gameMode == GameMode.VS_AI && current.activePlayer != Symbol.O) return
         if (index < 0 || index >= current.board.size) return
         if (current.board[index] != null) return
 
+        if (current.gameMode == GameMode.ONLINE_MULTIPLAYER) {
+            if (current.onlineRoomCode == null) return
+            if (current.activePlayer != current.myOnlineSymbol) return // Not my turn
+
+            val newBoardList = current.board.toMutableList()
+            newBoardList[index] = current.myOnlineSymbol
+            val strBoard = newBoardList.map { it?.name ?: "" }
+
+            val winningLine = GameEngine.checkWin(newBoardList, 3, 3)
+            val isDraw = GameEngine.checkDraw(newBoardList, winningLine)
+            val winnerStr = winningLine?.winner?.name
+            val nextPlayerStr = current.myOnlineSymbol.other().name
+
+            soundManager.playTap()
+            soundManager.triggerHapticClick()
+
+            firebaseManager.makeMove(
+                roomCode = current.onlineRoomCode,
+                board = strBoard,
+                nextPlayer = nextPlayerStr,
+                winner = winnerStr,
+                isDraw = isDraw
+            )
+            return
+        }
+
+        if (current.gameMode == GameMode.VS_AI && current.activePlayer != Symbol.O) return
         makeMove(index)
     }
 
@@ -124,8 +272,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         var newXScore = current.playerXScore
 
         if (winningLine != null) {
-            soundManager.playWin()
+            if (current.gameMode == GameMode.VS_AI) {
+                if (winningLine.winner == Symbol.O) {
+                    soundManager.playWin()
+                } else {
+                    soundManager.playLose()
+                }
+            } else {
+                soundManager.playWin()
+            }
             soundManager.triggerHapticWin()
+
             if (winningLine.winner == Symbol.O) {
                 newOScore++
                 viewModelScope.launch { repository.incrementPlayerOWins() }
@@ -164,7 +321,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         aiJob = viewModelScope.launch {
             try {
-                delay(400) // Natural thinking pause for AI
+                delay(400)
                 val state = _gameState.value
                 if (state.isGameOver || state.activePlayer != Symbol.X) return@launch
 
@@ -186,6 +343,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun undoMove() {
+        if (_gameState.value.gameMode == GameMode.ONLINE_MULTIPLAYER) return
         cancelAiJob()
         val state = _gameState.value
         if (state.moveHistory.isEmpty()) return
@@ -195,7 +353,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val newHistory = state.moveHistory.toMutableList()
 
         if (state.gameMode == GameMode.VS_AI) {
-            // In VS AI mode, undo both AI's last move and Player's last move if needed
             val lastMove = newHistory.removeAt(newHistory.size - 1)
             newBoard[lastMove.first] = null
 
@@ -245,6 +402,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         cancelAiJob()
         soundManager.playTap()
         val current = _gameState.value
+        if (current.gameMode == GameMode.ONLINE_MULTIPLAYER && current.onlineRoomCode != null) {
+            val emptyBoard = List(9) { "" }
+            firebaseManager.makeMove(current.onlineRoomCode, emptyBoard, "O", null, false)
+            return
+        }
+
         val totalCells = current.gridSize * current.gridSize
         _gameState.value = current.copy(
             board = List(totalCells) { null },
@@ -283,18 +446,21 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleSound(enabled: Boolean) {
         viewModelScope.launch {
             repository.setSoundEnabled(enabled)
+            soundManager.isSoundEnabled = enabled
         }
     }
 
     fun toggleMusic(enabled: Boolean) {
         viewModelScope.launch {
             repository.setMusicEnabled(enabled)
+            soundManager.isMusicEnabled = enabled
         }
     }
 
     fun toggleHaptics(enabled: Boolean) {
         viewModelScope.launch {
             repository.setHapticsEnabled(enabled)
+            soundManager.isHapticsEnabled = enabled
         }
     }
 
@@ -307,6 +473,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        onlineObserverJob?.cancel()
+        webRtcCallManager.stopCall()
         soundManager.release()
     }
 }

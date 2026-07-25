@@ -29,7 +29,7 @@ fun NeonVsHeader(
     isAiThinking: Boolean = false
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "turn_pulse")
-    val auraAlpha by infiniteTransition.animateFloat(
+    val auraAlphaState = infiniteTransition.animateFloat(
         initialValue = 0.4f,
         targetValue = 0.9f,
         animationSpec = infiniteRepeatable(
@@ -55,6 +55,7 @@ fun NeonVsHeader(
                     contentAlignment = Alignment.Center
                 ) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
+                        val auraAlpha = auraAlphaState.value
                         val center = Offset(size.width / 2f, size.height / 2f)
                         val radius = size.width * 0.38f
 
@@ -103,6 +104,7 @@ fun NeonVsHeader(
                     contentAlignment = Alignment.Center
                 ) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
+                        val auraAlpha = auraAlphaState.value
                         val width = size.width
                         val height = size.height
                         val padding = width * 0.22f

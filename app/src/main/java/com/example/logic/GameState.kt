@@ -7,7 +7,7 @@ enum class Symbol {
 }
 
 enum class GameMode {
-    VS_AI, VS_PLAYER
+    VS_AI, VS_PLAYER, ONLINE_MULTIPLAYER
 }
 
 enum class AiDifficulty {
@@ -33,12 +33,20 @@ data class GameState(
     val playerOScore: Int = 0,
     val playerXScore: Int = 0,
     val currentRound: Int = 1,
-    val targetWins: Int = 3, // For round dots display like ⊝⊝⊝
+    val targetWins: Int = 3, // For round dots display
     val hintCellIndex: Int? = null,
     val moveHistory: List<Pair<Int, Symbol>> = emptyList(),
     val gameMode: GameMode = GameMode.VS_AI,
     val aiDifficulty: AiDifficulty = AiDifficulty.HARD,
     val playerOIsHuman: Boolean = true,
     val playerXIsHuman: Boolean = false,
-    val isAiThinking: Boolean = false
+    val isAiThinking: Boolean = false,
+
+    // Online Multiplayer & WebRTC Fields
+    val onlineRoomCode: String? = null,
+    val isOnlineHost: Boolean = true,
+    val myOnlineSymbol: Symbol = Symbol.O,
+    val onlineStatus: String = "",
+    val isMicMuted: Boolean = false,
+    val opponentMutedMic: Boolean = false
 )

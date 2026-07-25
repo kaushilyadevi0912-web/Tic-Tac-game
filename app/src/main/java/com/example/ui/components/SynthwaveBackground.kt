@@ -22,7 +22,7 @@ fun SynthwaveBackground(
     content: @Composable () -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "grid_anim")
-    val gridOffset by infiniteTransition.animateFloat(
+    val gridOffsetState = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
@@ -47,6 +47,7 @@ fun SynthwaveBackground(
             )
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
+            val gridOffset = gridOffsetState.value
             val width = size.width
             val height = size.height
             val horizonY = height * 0.65f

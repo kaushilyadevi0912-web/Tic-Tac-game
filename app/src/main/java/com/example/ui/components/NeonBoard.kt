@@ -49,14 +49,21 @@ fun NeonBoard(
         val boardWidth = constraints.maxWidth.toFloat()
         val cellSize = boardWidth / gridSize
 
-        // 1. Grid Canvas (Grid lines + Winning Line)
+        // 1. Grid Canvas (Grid lines + Glowing accents)
         Canvas(modifier = Modifier.fillMaxSize()) {
-            // Draw Grid Lines
-            val gridColor = Color(0x44A200FF)
-            val strokeW = 1.5f
+            // Draw Grid Lines with bright glowing cyan/magenta
+            val gridColor = Color(0x9900E5FF)
+            val glowColor = Color(0x4400E5FF)
+            val strokeW = 3f
 
             for (i in 1 until gridSize) {
                 // Vertical lines
+                drawLine(
+                    color = glowColor,
+                    start = Offset(i * cellSize, 0f),
+                    end = Offset(i * cellSize, boardWidth),
+                    strokeWidth = strokeW * 2.5f
+                )
                 drawLine(
                     color = gridColor,
                     start = Offset(i * cellSize, 0f),
@@ -64,6 +71,12 @@ fun NeonBoard(
                     strokeWidth = strokeW
                 )
                 // Horizontal lines
+                drawLine(
+                    color = glowColor,
+                    start = Offset(0f, i * cellSize),
+                    end = Offset(boardWidth, i * cellSize),
+                    strokeWidth = strokeW * 2.5f
+                )
                 drawLine(
                     color = gridColor,
                     start = Offset(0f, i * cellSize),
@@ -95,11 +108,20 @@ fun NeonBoard(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
+                                .padding(4.dp)
                                 .testTag("cell_$index")
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (symbol == null && isCellClickable) Color(0x1F2A085C)
+                                    else Color(0x0DFFFFFF)
+                                )
+                                .border(
+                                    width = if (isHint) 2.dp else 1.dp,
+                                    color = if (isHint) Color(0xFFFFD700) else Color(0x44A200FF),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
                                 .clickable(
                                     enabled = isCellClickable,
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
                                     onClick = { onCellClick(index) }
                                 ),
                             contentAlignment = Alignment.Center
@@ -230,7 +252,7 @@ fun AnimatedSymbolCell(
 @Composable
 fun HintCellRing() {
     val infiniteTransition = rememberInfiniteTransition(label = "hint_ring")
-    val alpha by infiniteTransition.animateFloat(
+    val alphaState = infiniteTransition.animateFloat(
         initialValue = 0.3f,
         targetValue = 0.9f,
         animationSpec = infiniteRepeatable(
@@ -241,6 +263,7 @@ fun HintCellRing() {
     )
 
     Canvas(modifier = Modifier.fillMaxSize(0.85f)) {
+        val alpha = alphaState.value
         val center = Offset(size.width / 2f, size.height / 2f)
         val radius = size.width * 0.42f
         drawCircle(

@@ -13,11 +13,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.logic.GameMode
 import com.example.ui.components.ParticleVictoryOverlay
 import com.example.ui.components.SynthwaveBackground
 import com.example.ui.screens.GameScreen
 import com.example.ui.screens.MenuScreen
+import com.example.ui.screens.OnlineRoomDialog
 import com.example.ui.screens.ResultDialog
 import com.example.ui.screens.SettingsDialog
 import com.example.ui.theme.NeonTicTacToeTheme
@@ -39,6 +39,7 @@ class MainActivity : ComponentActivity() {
 
                 var currentScreen by remember { mutableStateOf(Screen.MENU) }
                 var showSettingsDialog by remember { mutableStateOf(false) }
+                var showOnlineRoomDialog by remember { mutableStateOf(false) }
 
                 LaunchedEffect(Unit) {
                     viewModel.soundManager.startMusic()
@@ -74,12 +75,22 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onOpenSettings = {
                                         showSettingsDialog = true
+                                    },
+                                    onOpenOnlineRoom = {
+                                        showOnlineRoomDialog = true
                                     }
                                 )
                             }
                             Screen.GAME -> {
                                 GameScreen(
                                     gameState = gameState,
+                                    isSoundEnabled = viewModel.soundManager.isSoundEnabled,
+                                    onToggleSound = {
+                                        viewModel.toggleSound(!viewModel.soundManager.isSoundEnabled)
+                                    },
+                                    onToggleMic = {
+                                        viewModel.toggleMicrophone()
+                                    },
                                     onCellClick = { index ->
                                         viewModel.onUserCellClick(index)
                                     },
@@ -101,6 +112,31 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         }
+                    }
+
+                    // Online Multiplayer Room Creation/Join Modal Dialog
+                    if (showOnlineRoomDialog) {
+                        OnlineRoomDialog(
+                            onHostRoom = { onCodeGenerated ->
+                                viewModel.createOnlineRoom { code ->
+                                    onCodeGenerated(code)
+                                    currentScreen = Screen.GAME
+                                }
+                            },
+                            onJoinRoom = { code, onSuccess, onError ->
+                                viewModel.joinOnlineRoom(
+                                    roomCode = code,
+                                    onSuccess = {
+                                        onSuccess()
+                                        currentScreen = Screen.GAME
+                                    },
+                                    onError = onError
+                                )
+                            },
+                            onDismiss = {
+                                showOnlineRoomDialog = false
+                            }
+                        )
                     }
 
                     // Settings Modal Dialog

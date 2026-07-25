@@ -29,12 +29,15 @@ import com.example.logic.GameMode
 import com.example.ui.components.NeonTopBar
 import com.example.ui.theme.*
 
+import androidx.compose.material.icons.rounded.Wifi
+
 @Composable
 fun MenuScreen(
     currentGridSize: Int,
     onSelectMode: (GameMode) -> Unit,
     onSelectGridSize: (Int) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenOnlineRoom: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -196,12 +199,20 @@ fun MenuScreen(
                 onClick = { onSelectMode(GameMode.VS_AI) }
             )
 
-            // Player vs Player Button
+            // Player vs Player Local Button
             NeonModeButton(
                 iconLeft = { Icon(Icons.Rounded.Person, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp)) },
                 vsText = "VS",
                 iconRight = { Icon(Icons.Rounded.Person, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp)) },
                 onClick = { onSelectMode(GameMode.VS_PLAYER) }
+            )
+
+            // Online Room Button
+            NeonModeButton(
+                iconLeft = { Icon(Icons.Rounded.Person, contentDescription = null, tint = NeonPlayerCyan, modifier = Modifier.size(28.dp)) },
+                vsText = "ONLINE",
+                iconRight = { Icon(Icons.Rounded.Wifi, contentDescription = null, tint = NeonPlayerCyan, modifier = Modifier.size(28.dp)) },
+                onClick = onOpenOnlineRoom
             )
         }
     }
