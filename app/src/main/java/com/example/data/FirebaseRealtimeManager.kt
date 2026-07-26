@@ -332,12 +332,19 @@ class FirebaseRealtimeManager(context: Context) {
         val ref = roomsRef ?: return
         val nodeName = if (isHost) "guestAudioChunk" else "hostAudioChunk"
         val childRef = ref.child(roomCode).child(nodeName)
+        var lastProcessedAudioTs = 0L
         childRef.addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                val chunkMap = snapshot.value as? Map<*, *>
-                val dataStr = chunkMap?.get("data") as? String
-                if (!dataStr.isNullOrEmpty()) {
-                    onChunkReceived(dataStr)
+                try {
+                    val chunkMap = snapshot.value as? Map<*, *>
+                    val dataStr = chunkMap?.get("data") as? String
+                    val ts = (chunkMap?.get("ts") as? Number)?.toLong() ?: 0L
+                    if (!dataStr.isNullOrEmpty() && ts > lastProcessedAudioTs) {
+                        lastProcessedAudioTs = ts
+                        onChunkReceived(dataStr)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
             }
 

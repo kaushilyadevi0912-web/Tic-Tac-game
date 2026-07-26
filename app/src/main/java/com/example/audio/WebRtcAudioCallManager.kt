@@ -12,6 +12,7 @@ import android.util.Base64
 import androidx.core.content.ContextCompat
 import com.example.data.FirebaseRealtimeManager
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import java.util.concurrent.atomic.AtomicBoolean
 
 class WebRtcAudioCallManager(
@@ -33,6 +34,9 @@ class WebRtcAudioCallManager(
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
     private var recordingJob: Job? = null
+    private var playbackJob: Job? = null
+
+    private var audioChunkChannel = Channel<ByteArray>(capacity = 100)
 
     private val sampleRate = 16000
     private val channelConfigIn = AudioFormat.CHANNEL_IN_MONO
@@ -40,10 +44,13 @@ class WebRtcAudioCallManager(
     private val audioFormat = AudioFormat.ENCODING_PCM_16BIT
 
     fun startCall(roomCode: String, isHost: Boolean) {
+        stopCall() // Clean up any existing active audio session
+
         currentRoomCode = roomCode
         isHostUser = isHost
         isCallActive.set(true)
         isMicMuted = false
+        audioChunkChannel = Channel(capacity = 100)
 
         // 1. Send SDP Signaling
         if (isHost) {
@@ -81,21 +88,28 @@ class WebRtcAudioCallManager(
     }
 
     private fun hasMicPermission(): Boolean {
-        return ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
+        return try {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+        } catch (e: Exception) {
+            false
+        }
     }
 
     private fun initAudioTrack() {
         try {
-            val minBufferSizeTrack = AudioTrack.getMinBufferSize(sampleRate, channelConfigOut, audioFormat)
-            val bufferSize = maxOf(minBufferSizeTrack, 4096)
+            audioTrack?.release()
+            audioTrack = null
 
-            audioTrack = AudioTrack.Builder()
+            val minBufferSizeTrack = AudioTrack.getMinBufferSize(sampleRate, channelConfigOut, audioFormat)
+            val bufferSize = if (minBufferSizeTrack > 0) maxOf(minBufferSizeTrack * 2, 4096) else 8192
+
+            val track = AudioTrack.Builder()
                 .setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_GAME)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
@@ -110,45 +124,113 @@ class WebRtcAudioCallManager(
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .build()
 
-            audioTrack?.play()
+            if (track.state == AudioTrack.STATE_INITIALIZED) {
+                audioTrack = track
+                try {
+                    track.play()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                startPlaybackLoop()
+            } else {
+                track.release()
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
-    private fun startRecordingLoop() {
-        if (recordingJob?.isActive == true) return
-        recordingJob = scope.launch {
-            val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfigIn, audioFormat)
-            val bufferSize = maxOf(minBufferSize, 2048)
-            val buffer = ByteArray(1024)
-
+    private fun startPlaybackLoop() {
+        playbackJob?.cancel()
+        playbackJob = scope.launch {
             try {
-                if (!hasMicPermission()) return@launch
+                for (pcmBytes in audioChunkChannel) {
+                    if (!isCallActive.get()) break
+                    val track = audioTrack
+                    if (track != null && track.state == AudioTrack.STATE_INITIALIZED) {
+                        if (track.playState != AudioTrack.PLAYSTATE_PLAYING) {
+                            try { track.play() } catch (e: Exception) { e.printStackTrace() }
+                        }
+                        try {
+                            track.write(pcmBytes, 0, pcmBytes.size)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
 
-                audioRecord = AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
+    private fun createAudioRecord(bufferSize: Int): AudioRecord? {
+        val sources = arrayOf(
+            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.DEFAULT,
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION
+        )
+        for (source in sources) {
+            try {
+                val recorder = AudioRecord(
+                    source,
                     sampleRate,
                     channelConfigIn,
                     audioFormat,
                     bufferSize
                 )
-
-                if (audioRecord?.state == AudioRecord.STATE_INITIALIZED) {
-                    audioRecord?.startRecording()
+                if (recorder.state == AudioRecord.STATE_INITIALIZED) {
+                    return recorder
                 } else {
+                    recorder.release()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        return null
+    }
+
+    private fun startRecordingLoop() {
+        if (recordingJob?.isActive == true) return
+        recordingJob = scope.launch {
+            try {
+                if (!hasMicPermission()) return@launch
+
+                val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfigIn, audioFormat)
+                val bufferSize = if (minBufferSize > 0) maxOf(minBufferSize * 2, 4096) else 4096
+                val buffer = ByteArray(1024)
+
+                val record = createAudioRecord(bufferSize) ?: return@launch
+                audioRecord = record
+
+                try {
+                    record.startRecording()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    try { record.release() } catch (_: Exception) {}
+                    audioRecord = null
                     return@launch
                 }
 
                 while (isActive && isCallActive.get()) {
                     if (!isMicMuted) {
-                        val readSize = audioRecord?.read(buffer, 0, buffer.size) ?: 0
+                        val currentRecord = audioRecord ?: break
+                        if (currentRecord.state != AudioRecord.STATE_INITIALIZED) break
+                        val readSize = try {
+                            currentRecord.read(buffer, 0, buffer.size)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            -1
+                        }
                         if (readSize > 0) {
                             val base64Str = Base64.encodeToString(buffer, 0, readSize, Base64.NO_WRAP)
                             val room = currentRoomCode
                             if (room != null) {
                                 firebaseManager.sendAudioChunk(room, isHostUser, base64Str)
                             }
+                        } else if (readSize < 0) {
+                            delay(100)
                         }
                     } else {
                         delay(200)
@@ -159,26 +241,28 @@ class WebRtcAudioCallManager(
             } finally {
                 try {
                     audioRecord?.stop()
-                    audioRecord?.release()
-                    audioRecord = null
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
+                try {
+                    audioRecord?.release()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                audioRecord = null
             }
         }
     }
 
     private fun playAudioChunk(base64Str: String) {
         if (!isCallActive.get()) return
-        scope.launch {
-            try {
-                val pcmBytes = Base64.decode(base64Str, Base64.NO_WRAP)
-                if (pcmBytes != null && pcmBytes.isNotEmpty()) {
-                    audioTrack?.write(pcmBytes, 0, pcmBytes.size)
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
+        try {
+            val pcmBytes = Base64.decode(base64Str, Base64.NO_WRAP)
+            if (pcmBytes != null && pcmBytes.isNotEmpty()) {
+                audioChunkChannel.trySend(pcmBytes)
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -200,19 +284,43 @@ class WebRtcAudioCallManager(
     fun stopCall() {
         isCallActive.set(false)
         isRemotePeerConnected = false
+
         recordingJob?.cancel()
         recordingJob = null
 
-        try {
-            audioRecord?.stop()
-            audioRecord?.release()
-            audioRecord = null
+        playbackJob?.cancel()
+        playbackJob = null
 
-            audioTrack?.stop()
-            audioTrack?.release()
-            audioTrack = null
+        try {
+            audioChunkChannel.close()
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+
+        scope.launch {
+            try {
+                audioRecord?.stop()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            try {
+                audioRecord?.release()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            audioRecord = null
+
+            try {
+                audioTrack?.stop()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            try {
+                audioTrack?.release()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            audioTrack = null
         }
     }
 }
