@@ -28,11 +28,13 @@ import com.example.ui.theme.*
 @Composable
 fun OnlineRoomDialog(
     initialGridSize: Int = 3,
-    onHostRoom: (gridSize: Int, onCodeGenerated: (String) -> Unit) -> Unit,
-    onJoinRoom: (String, () -> Unit, (String) -> Unit) -> Unit,
+    onHostRoom: (gridSize: Int, hostName: String, onCodeGenerated: (String) -> Unit) -> Unit,
+    onJoinRoom: (roomCode: String, guestName: String, onSuccess: () -> Unit, onError: (String) -> Unit) -> Unit,
     onDismiss: () -> Unit
 ) {
     var selectedGridSize by remember { mutableIntStateOf(if (initialGridSize in 3..7) initialGridSize else 3) }
+    var hostNameInput by remember { mutableStateOf("Player 1") }
+    var guestNameInput by remember { mutableStateOf("Player 2") }
     var roomCodeInput by remember { mutableStateOf("") }
     var generatedCode by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -126,12 +128,29 @@ fun OnlineRoomDialog(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     // Option 1: Create Room
+                    OutlinedTextField(
+                        value = hostNameInput,
+                        onValueChange = { hostNameInput = it },
+                        label = { Text("Your Name (Host)", color = NeonTextMuted) },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = NeonPlayerOrange,
+                            unfocusedBorderColor = NeonButtonBorder,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
                     Button(
                         onClick = {
-                            onHostRoom(selectedGridSize) { code ->
+                            onHostRoom(selectedGridSize, hostNameInput) { code ->
                                 generatedCode = code
                             }
                         },
@@ -151,7 +170,7 @@ fun OnlineRoomDialog(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     Text(
                         text = "— OR —",
@@ -160,9 +179,26 @@ fun OnlineRoomDialog(
                         fontWeight = FontWeight.Bold
                     )
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     // Option 2: Join Room with 3-digit code
+                    OutlinedTextField(
+                        value = guestNameInput,
+                        onValueChange = { guestNameInput = it },
+                        label = { Text("Your Name (Guest)", color = NeonTextMuted) },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = NeonPlayerCyan,
+                            unfocusedBorderColor = NeonButtonBorder,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
                     OutlinedTextField(
                         value = roomCodeInput,
                         onValueChange = { if (it.length <= 3) roomCodeInput = it },
@@ -179,7 +215,7 @@ fun OnlineRoomDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     Button(
                         onClick = {
@@ -188,6 +224,7 @@ fun OnlineRoomDialog(
                                 errorMessage = null
                                 onJoinRoom(
                                     roomCodeInput,
+                                    guestNameInput,
                                     {
                                         isJoining = false
                                         onDismiss()

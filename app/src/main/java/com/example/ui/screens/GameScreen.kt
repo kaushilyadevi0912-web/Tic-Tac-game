@@ -140,6 +140,8 @@ fun GameScreen(
                 playerOScore = gameState.playerOScore,
                 playerXScore = gameState.playerXScore,
                 gridSize = gameState.gridSize,
+                playerOName = gameState.playerOName,
+                playerXName = gameState.playerXName,
                 isAiThinking = gameState.isAiThinking,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )

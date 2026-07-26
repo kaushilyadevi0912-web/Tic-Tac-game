@@ -90,7 +90,7 @@ class MainActivity : ComponentActivity() {
                     if (checkMicPermissionGranted()) {
                         viewModel.toggleMicrophone()
                     } else {
-                        showMicPermissionDialog = true
+                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 }
 
@@ -198,15 +198,16 @@ class MainActivity : ComponentActivity() {
                     if (showOnlineRoomDialog) {
                         OnlineRoomDialog(
                             initialGridSize = gameState.gridSize,
-                            onHostRoom = { selectedGridSize, onCodeGenerated ->
-                                viewModel.createOnlineRoom(selectedGridSize) { code ->
+                            onHostRoom = { selectedGridSize, hostName, onCodeGenerated ->
+                                viewModel.createOnlineRoom(gridSize = selectedGridSize, hostName = hostName) { code ->
                                     onCodeGenerated(code)
                                     currentScreen = Screen.GAME
                                 }
                             },
-                            onJoinRoom = { code, onSuccess, onError ->
+                            onJoinRoom = { code, guestName, onSuccess, onError ->
                                 viewModel.joinOnlineRoom(
                                     roomCode = code,
+                                    guestName = guestName,
                                     onSuccess = {
                                         onSuccess()
                                         currentScreen = Screen.GAME
@@ -267,6 +268,9 @@ class MainActivity : ComponentActivity() {
                             gameMode = gameState.gameMode,
                             playerOScore = gameState.playerOScore,
                             playerXScore = gameState.playerXScore,
+                            playerOName = gameState.playerOName,
+                            playerXName = gameState.playerXName,
+                            myOnlineSymbol = gameState.myOnlineSymbol,
                             onPlayAgain = {
                                 viewModel.restartRound()
                             },

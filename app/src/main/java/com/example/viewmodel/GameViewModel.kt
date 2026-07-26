@@ -105,15 +105,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- ONLINE MULTIPLAYER ACTIONS ---
 
-    fun createOnlineRoom(gridSize: Int = 3, onCodeGenerated: (String) -> Unit) {
+    fun createOnlineRoom(gridSize: Int = 3, hostName: String = "Player 1", onCodeGenerated: (String) -> Unit) {
         val roomCode = firebaseManager.generate3DigitCode()
         val validSize = if (gridSize in 3..7) gridSize else 3
         val totalCells = validSize * validSize
         val targetStreak = GameEngine.defaultStreakTarget(validSize)
+        val cleanHostName = hostName.trim().ifBlank { "Player 1" }
         viewModelScope.launch { repository.setGameMode(GameMode.ONLINE_MULTIPLAYER) }
         firebaseManager.createRoom(
             roomCode = roomCode,
             gridSize = validSize,
+            hostName = cleanHostName,
             onSuccess = {
                 _gameState.value = _gameState.value.copy(
                     gridSize = validSize,
@@ -122,6 +124,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     onlineRoomCode = roomCode,
                     isOnlineHost = true,
                     myOnlineSymbol = Symbol.O,
+                    playerOName = cleanHostName,
+                    playerXName = "Player 2",
                     onlineStatus = "Waiting for Player B (Code: $roomCode)...",
                     board = List(totalCells) { null },
                     activePlayer = Symbol.O,
@@ -143,10 +147,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    fun joinOnlineRoom(roomCode: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
+    fun joinOnlineRoom(roomCode: String, guestName: String = "Player 2", onSuccess: () -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch { repository.setGameMode(GameMode.ONLINE_MULTIPLAYER) }
+        val cleanGuestName = guestName.trim().ifBlank { "Player 2" }
         firebaseManager.joinRoom(
             roomCode = roomCode,
+            guestName = cleanGuestName,
             onSuccess = { roomData ->
                 val roomGridSize = if (roomData.gridSize in 3..7) roomData.gridSize else 3
                 val totalCells = roomGridSize * roomGridSize
@@ -159,6 +165,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     onlineRoomCode = roomCode,
                     isOnlineHost = false,
                     myOnlineSymbol = Symbol.X,
+                    playerOName = roomData.hostName.ifBlank { "Player 1" },
+                    playerXName = cleanGuestName,
                     onlineStatus = "Connected to Room $roomCode!",
                     board = List(totalCells) { null },
                     activePlayer = Symbol.O,
@@ -248,11 +256,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         val opponentMuted = if (current.isOnlineHost) roomData.guestMutedMic else roomData.hostMutedMic
 
+        val hostName = roomData.hostName.ifBlank { "Player 1" }
+        val guestName = roomData.guestName.ifBlank { "Player 2" }
+
         val statusText = when {
             roomData.status == "WAITING" -> "Waiting for Player B (Code: ${roomData.roomCode})..."
-            isGameOver -> if (winnerSymbol != null) "Winner: Player ${winnerSymbol.name}!" else "Draw Game!"
+            isGameOver -> {
+                if (winnerSymbol != null) {
+                    if (winnerSymbol == current.myOnlineSymbol) "YOU WIN!" else "YOU LOSE"
+                } else "DRAW GAME!"
+            }
             activeSymbol == current.myOnlineSymbol -> "YOUR TURN (${current.myOnlineSymbol.name})"
-            else -> "OPPONENT'S TURN (${activeSymbol.name})"
+            else -> "OPPONENT'S TURN (${if (current.myOnlineSymbol == Symbol.O) guestName else hostName})"
         }
 
         // Parse Chat Messages
@@ -264,7 +279,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val symbol = if (senderStr == "X") Symbol.X else Symbol.O
             ChatMessage(
                 id = id,
-                senderName = if (symbol == current.myOnlineSymbol) "You" else "Opponent (${symbol.name})",
+                senderName = if (symbol == Symbol.O) hostName else guestName,
                 senderSymbol = symbol,
                 text = text,
                 timestamp = ts
@@ -293,6 +308,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _gameState.value = current.copy(
             gridSize = roomGridSize,
             winningStreakTarget = targetStreak,
+            playerOName = hostName,
+            playerXName = guestName,
             board = newBoard,
             activePlayer = activeSymbol,
             winningLine = winningLine,

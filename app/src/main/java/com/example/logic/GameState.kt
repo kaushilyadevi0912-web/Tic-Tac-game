@@ -48,6 +48,8 @@ data class GameState(
     val aiDifficulty: AiDifficulty = AiDifficulty.HARD,
     val playerOIsHuman: Boolean = true,
     val playerXIsHuman: Boolean = false,
+    val playerOName: String = "Player 1",
+    val playerXName: String = "Player 2",
     val isAiThinking: Boolean = false,
 
     // Online Multiplayer & WebRTC Fields

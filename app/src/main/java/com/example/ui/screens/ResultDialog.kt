@@ -33,6 +33,9 @@ fun ResultDialog(
     gameMode: GameMode,
     playerOScore: Int,
     playerXScore: Int,
+    playerOName: String = "Player 1",
+    playerXName: String = "Player 2",
+    myOnlineSymbol: Symbol = Symbol.O,
     onPlayAgain: () -> Unit,
     onMainMenu: () -> Unit
 ) {
@@ -47,15 +50,39 @@ fun ResultDialog(
         label = "confetti_anim"
     )
 
+    val isIWinner = gameMode == GameMode.ONLINE_MULTIPLAYER && winner == myOnlineSymbol
+    val isILoser = gameMode == GameMode.ONLINE_MULTIPLAYER && winner != null && winner != myOnlineSymbol
+
     val winnerTitle = when {
         isDraw -> "IT'S A DRAW!"
-        winner == Symbol.O -> "PLAYER 1 WINS!"
-        winner == Symbol.X && gameMode == GameMode.VS_AI -> "AI WINS!"
-        else -> "PLAYER 2 WINS!"
+        gameMode == GameMode.ONLINE_MULTIPLAYER -> {
+            if (isIWinner) "YOU WIN!" else "YOU LOSE"
+        }
+        gameMode == GameMode.VS_AI -> {
+            if (winner == Symbol.O) "YOU WIN!" else "AI WINS!"
+        }
+        else -> {
+            if (winner == Symbol.O) "${playerOName.uppercase()} WINS!" else "${playerXName.uppercase()} WINS!"
+        }
+    }
+
+    val subtitle = when {
+        isDraw -> "A close match! Nobody won this round."
+        gameMode == GameMode.ONLINE_MULTIPLAYER -> {
+            val opponentName = if (myOnlineSymbol == Symbol.O) playerXName else playerOName
+            if (isIWinner) "Victory! You defeated $opponentName!" else "$opponentName won this game!"
+        }
+        gameMode == GameMode.VS_AI -> {
+            if (winner == Symbol.O) "Great job! You beat the AI!" else "The AI won this round."
+        }
+        else -> {
+            if (winner == Symbol.O) "$playerOName takes the point!" else "$playerXName takes the point!"
+        }
     }
 
     val bannerColor = when {
         isDraw -> NeonYellowHint
+        gameMode == GameMode.ONLINE_MULTIPLAYER -> if (isIWinner) NeonPlayerCyan else NeonPlayerRed
         winner == Symbol.O -> NeonPlayerOrange
         else -> NeonPlayerCyan
     }
@@ -87,26 +114,33 @@ fun ResultDialog(
 
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
                     text = winnerTitle,
-                    fontSize = 26.sp,
+                    fontSize = 28.sp,
                     fontWeight = FontWeight.Black,
                     color = bannerColor
                 )
 
+                Text(
+                    text = subtitle,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White.copy(alpha = 0.9f)
+                )
+
                 // Current Score Summary
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Player: $playerOScore", color = NeonPlayerOrange, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Text("VS", color = Color.White, fontSize = 14.sp)
+                    Text("$playerOName: $playerOScore", color = NeonPlayerOrange, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text("VS", color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp)
                     Text(
-                        if (gameMode == GameMode.VS_AI) "AI: $playerXScore" else "Player 2: $playerXScore",
+                        if (gameMode == GameMode.VS_AI) "AI: $playerXScore" else "$playerXName: $playerXScore",
                         color = NeonPlayerCyan,
-                        fontSize = 16.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }

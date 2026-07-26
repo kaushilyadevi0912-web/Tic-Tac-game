@@ -63,15 +63,19 @@ class FirebaseRealtimeManager(context: Context) {
     fun createRoom(
         roomCode: String,
         gridSize: Int = 3,
+        hostName: String = "Player 1",
         onSuccess: (OnlineRoomData) -> Unit,
         onError: (String) -> Unit
     ) {
         val totalCells = gridSize * gridSize
+        val cleanHostName = hostName.ifBlank { "Player 1" }
         val room = OnlineRoomData(
             roomCode = roomCode,
             status = "WAITING",
             playerHostId = myPlayerId,
             playerGuestId = null,
+            hostName = cleanHostName,
+            guestName = "Player 2",
             activePlayer = "O",
             gridSize = gridSize,
             board = List(totalCells) { "" },
@@ -98,24 +102,26 @@ class FirebaseRealtimeManager(context: Context) {
 
     fun joinRoom(
         roomCode: String,
+        guestName: String = "Player 2",
         onSuccess: (OnlineRoomData) -> Unit,
         onError: (String) -> Unit
     ) {
+        val cleanGuestName = guestName.ifBlank { "Player 2" }
         val localRoom = inMemoryRooms[roomCode]
         if (localRoom != null) {
             if (localRoom.playerHostId == myPlayerId) {
                 onSuccess(localRoom)
                 return
             }
-            if (localRoom.playerGuestId != null && localRoom.playerGuestId != myPlayerId) {
+            if (localRoom.playerGuestId != null && localRoom.playerGuestId.isNotEmpty() && localRoom.status == "PLAYING" && localRoom.playerGuestId != myPlayerId) {
                 onError("Room $roomCode is already full!")
                 return
             }
-            val updated = localRoom.copy(playerGuestId = myPlayerId, status = "PLAYING")
+            val updated = localRoom.copy(playerGuestId = myPlayerId, guestName = cleanGuestName, status = "PLAYING")
             notifyLocalFlow(roomCode, updated)
 
             roomsRef?.child(roomCode)?.updateChildren(
-                mapOf("playerGuestId" to myPlayerId, "status" to "PLAYING")
+                mapOf("playerGuestId" to myPlayerId, "guestName" to cleanGuestName, "status" to "PLAYING")
             )
 
             onSuccess(updated)
@@ -153,11 +159,12 @@ class FirebaseRealtimeManager(context: Context) {
                     return
                 }
 
-                val updatedRoom = room.copy(playerGuestId = myPlayerId, status = "PLAYING")
+                val updatedRoom = room.copy(playerGuestId = myPlayerId, guestName = cleanGuestName, status = "PLAYING")
                 notifyLocalFlow(roomCode, updatedRoom)
 
                 val updatedMap = mapOf<String, Any?>(
                     "playerGuestId" to myPlayerId,
+                    "guestName" to cleanGuestName,
                     "status" to "PLAYING"
                 )
 
@@ -305,6 +312,37 @@ class FirebaseRealtimeManager(context: Context) {
         val ref = roomsRef ?: return
         val nodeName = if (isHost) "hostIceCandidates" else "guestIceCandidates"
         ref.child(roomCode).child(nodeName).push().setValue(candidateData)
+    }
+
+    fun sendAudioChunk(roomCode: String, isHost: Boolean, chunkBase64: String) {
+        val ref = roomsRef ?: return
+        val nodeName = if (isHost) "hostAudioChunk" else "guestAudioChunk"
+        val data = mapOf(
+            "data" to chunkBase64,
+            "ts" to System.currentTimeMillis()
+        )
+        ref.child(roomCode).child(nodeName).setValue(data)
+    }
+
+    fun observeAudioChunks(
+        roomCode: String,
+        isHost: Boolean,
+        onChunkReceived: (String) -> Unit
+    ) {
+        val ref = roomsRef ?: return
+        val nodeName = if (isHost) "guestAudioChunk" else "hostAudioChunk"
+        val childRef = ref.child(roomCode).child(nodeName)
+        childRef.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val chunkMap = snapshot.value as? Map<*, *>
+                val dataStr = chunkMap?.get("data") as? String
+                if (!dataStr.isNullOrEmpty()) {
+                    onChunkReceived(dataStr)
+                }
+            }
+
+            override fun onCancelled(error: DatabaseError) {}
+        })
     }
 
     fun observeIceCandidates(

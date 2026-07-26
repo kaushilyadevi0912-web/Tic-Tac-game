@@ -25,6 +25,8 @@ fun NeonVsHeader(
     playerOScore: Int,
     playerXScore: Int,
     gridSize: Int,
+    playerOName: String = "Player 1",
+    playerXName: String = "Player 2",
     modifier: Modifier = Modifier,
     isAiThinking: Boolean = false
 ) {
@@ -82,7 +84,7 @@ fun NeonVsHeader(
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Player",
+                    text = playerOName,
                     color = NeonPlayerOrange,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
@@ -149,7 +151,7 @@ fun NeonVsHeader(
                 Text(
                     text = if (gameMode == GameMode.VS_AI) {
                         if (isAiThinking) "AI (Thinking...)" else "AI"
-                    } else "Player 2",
+                    } else playerXName,
                     color = NeonPlayerCyan,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold

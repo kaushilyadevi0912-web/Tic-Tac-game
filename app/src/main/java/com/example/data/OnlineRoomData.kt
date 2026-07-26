@@ -8,6 +8,8 @@ data class OnlineRoomData(
     val status: String = "WAITING", // WAITING, PLAYING, FINISHED
     val playerHostId: String = "",
     val playerGuestId: String? = null,
+    val hostName: String = "Player 1",
+    val guestName: String = "Player 2",
     val activePlayer: String = "O", // "O" or "X"
     val gridSize: Int = 3,
     val board: List<String> = List(9) { "" },
