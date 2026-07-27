@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -121,6 +122,11 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                BackHandler(enabled = currentScreen == Screen.GAME) {
+                    viewModel.exitGameToMenu()
+                    currentScreen = Screen.MENU
+                }
+
                 Box(modifier = Modifier.fillMaxSize()) {
                     SynthwaveBackground {
                         when (currentScreen) {
@@ -181,9 +187,7 @@ class MainActivity : ComponentActivity() {
                                         viewModel.restartRound()
                                     },
                                     onBackClick = {
-                                        if (gameState.gameMode == GameMode.ONLINE_MULTIPLAYER) {
-                                            viewModel.leaveOnlineRoom()
-                                        }
+                                        viewModel.exitGameToMenu()
                                         currentScreen = Screen.MENU
                                     },
                                     onOpenSettings = {
@@ -254,7 +258,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     // Game Over Result Modal Dialog & Particle Burst Overlay
-                    if (gameState.isGameOver) {
+                    if (currentScreen == Screen.GAME && gameState.isGameOver) {
                         ParticleVictoryOverlay(
                             isGameOver = gameState.isGameOver,
                             winner = gameState.winner,
@@ -275,10 +279,7 @@ class MainActivity : ComponentActivity() {
                                 viewModel.restartRound()
                             },
                             onMainMenu = {
-                                if (gameState.gameMode == GameMode.ONLINE_MULTIPLAYER) {
-                                    viewModel.leaveOnlineRoom()
-                                }
-                                viewModel.restartRound()
+                                viewModel.exitGameToMenu()
                                 currentScreen = Screen.MENU
                             }
                         )

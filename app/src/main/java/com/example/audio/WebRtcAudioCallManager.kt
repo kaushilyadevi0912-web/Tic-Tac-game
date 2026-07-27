@@ -5,9 +5,13 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.AutomaticGainControl
+import android.media.audiofx.NoiseSuppressor
 import android.util.Base64
 import androidx.core.content.ContextCompat
 import com.example.data.FirebaseRealtimeManager
@@ -36,6 +40,13 @@ class WebRtcAudioCallManager(
     private var recordingJob: Job? = null
     private var playbackJob: Job? = null
 
+    private var acousticEchoCanceler: AcousticEchoCanceler? = null
+    private var noiseSuppressor: NoiseSuppressor? = null
+    private var automaticGainControl: AutomaticGainControl? = null
+
+    @Volatile
+    private var lastRemotePlaybackTime: Long = 0L
+
     private var audioChunkChannel = Channel<ByteArray>(capacity = 100)
 
     private val sampleRate = 16000
@@ -51,6 +62,15 @@ class WebRtcAudioCallManager(
         isCallActive.set(true)
         isMicMuted = false
         audioChunkChannel = Channel(capacity = 100)
+
+        // Configure AudioManager for Voice Communication (Enables OS level hardware echo cancellation)
+        try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            audioManager?.mode = AudioManager.MODE_IN_COMMUNICATION
+            audioManager?.isSpeakerphoneOn = true
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
 
         // 1. Send SDP Signaling
         if (isHost) {
@@ -109,7 +129,7 @@ class WebRtcAudioCallManager(
             val track = AudioTrack.Builder()
                 .setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
@@ -152,6 +172,7 @@ class WebRtcAudioCallManager(
                             try { track.play() } catch (e: Exception) { e.printStackTrace() }
                         }
                         try {
+                            lastRemotePlaybackTime = System.currentTimeMillis()
                             track.write(pcmBytes, 0, pcmBytes.size)
                         } catch (e: Exception) {
                             e.printStackTrace()
@@ -164,11 +185,64 @@ class WebRtcAudioCallManager(
         }
     }
 
+    private fun enableAudioEffects(sessionId: Int) {
+        releaseAudioEffects()
+        try {
+            if (AcousticEchoCanceler.isAvailable()) {
+                acousticEchoCanceler = AcousticEchoCanceler.create(sessionId)?.apply {
+                    enabled = true
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        try {
+            if (NoiseSuppressor.isAvailable()) {
+                noiseSuppressor = NoiseSuppressor.create(sessionId)?.apply {
+                    enabled = true
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        try {
+            if (AutomaticGainControl.isAvailable()) {
+                automaticGainControl = AutomaticGainControl.create(sessionId)?.apply {
+                    enabled = true
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun releaseAudioEffects() {
+        try {
+            acousticEchoCanceler?.enabled = false
+            acousticEchoCanceler?.release()
+        } catch (_: Exception) {}
+        acousticEchoCanceler = null
+
+        try {
+            noiseSuppressor?.enabled = false
+            noiseSuppressor?.release()
+        } catch (_: Exception) {}
+        noiseSuppressor = null
+
+        try {
+            automaticGainControl?.enabled = false
+            automaticGainControl?.release()
+        } catch (_: Exception) {}
+        automaticGainControl = null
+    }
+
     private fun createAudioRecord(bufferSize: Int): AudioRecord? {
         val sources = arrayOf(
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
             MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.DEFAULT,
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION
+            MediaRecorder.AudioSource.DEFAULT
         )
         for (source in sources) {
             try {
@@ -180,6 +254,7 @@ class WebRtcAudioCallManager(
                     bufferSize
                 )
                 if (recorder.state == AudioRecord.STATE_INITIALIZED) {
+                    enableAudioEffects(recorder.audioSessionId)
                     return recorder
                 } else {
                     recorder.release()
@@ -189,6 +264,21 @@ class WebRtcAudioCallManager(
             }
         }
         return null
+    }
+
+    private fun calculateRms(buffer: ByteArray, readSize: Int): Double {
+        var sum = 0.0
+        var count = 0
+        var i = 0
+        while (i < readSize - 1) {
+            val sample = (buffer[i].toInt() and 0xFF) or (buffer[i + 1].toInt() shl 8)
+            val shortVal = sample.toShort()
+            sum += shortVal * shortVal
+            count++
+            i += 2
+        }
+        if (count == 0) return 0.0
+        return Math.sqrt(sum / count)
     }
 
     private fun startRecordingLoop() {
@@ -224,10 +314,15 @@ class WebRtcAudioCallManager(
                             -1
                         }
                         if (readSize > 0) {
-                            val base64Str = Base64.encodeToString(buffer, 0, readSize, Base64.NO_WRAP)
-                            val room = currentRoomCode
-                            if (room != null) {
-                                firebaseManager.sendAudioChunk(room, isHostUser, base64Str)
+                            val rms = calculateRms(buffer, readSize)
+                            // Gentle voice activity threshold (120.0 RMS) so human voice is never cut off,
+                            // while hardware AcousticEchoCanceler & MODE_IN_COMMUNICATION handle speaker feedback echo.
+                            if (rms > 120.0) {
+                                val base64Str = Base64.encodeToString(buffer, 0, readSize, Base64.NO_WRAP)
+                                val room = currentRoomCode
+                                if (room != null) {
+                                    firebaseManager.sendAudioChunk(room, isHostUser, base64Str)
+                                }
                             }
                         } else if (readSize < 0) {
                             delay(100)
@@ -239,6 +334,7 @@ class WebRtcAudioCallManager(
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
+                releaseAudioEffects()
                 try {
                     audioRecord?.stop()
                 } catch (e: Exception) {
@@ -291,6 +387,14 @@ class WebRtcAudioCallManager(
         playbackJob?.cancel()
         playbackJob = null
 
+        // Reset AudioManager mode
+        try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            audioManager?.mode = AudioManager.MODE_NORMAL
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
         try {
             audioChunkChannel.close()
         } catch (e: Exception) {
@@ -298,6 +402,7 @@ class WebRtcAudioCallManager(
         }
 
         scope.launch {
+            releaseAudioEffects()
             try {
                 audioRecord?.stop()
             } catch (e: Exception) {
@@ -324,3 +429,4 @@ class WebRtcAudioCallManager(
         }
     }
 }
+

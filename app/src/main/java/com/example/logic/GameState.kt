@@ -51,6 +51,7 @@ data class GameState(
     val playerOName: String = "Player 1",
     val playerXName: String = "Player 2",
     val isAiThinking: Boolean = false,
+    val turnTimeRemaining: Int = 30,
 
     // Online Multiplayer & WebRTC Fields
     val onlineRoomCode: String? = null,

@@ -18,6 +18,11 @@ import com.example.logic.GameMode
 import com.example.logic.Symbol
 import com.example.ui.theme.*
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+
 @Composable
 fun NeonVsHeader(
     activePlayer: Symbol,
@@ -28,7 +33,9 @@ fun NeonVsHeader(
     playerOName: String = "Player 1",
     playerXName: String = "Player 2",
     modifier: Modifier = Modifier,
-    isAiThinking: Boolean = false
+    isAiThinking: Boolean = false,
+    turnTimeRemaining: Int = 30,
+    isGameOver: Boolean = false
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "turn_pulse")
     val auraAlphaState = infiniteTransition.animateFloat(
@@ -91,13 +98,38 @@ fun NeonVsHeader(
                 )
             }
 
-            // VS Label
-            Text(
-                text = "vs",
-                color = NeonPlayerCyan,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.ExtraBold
-            )
+            // VS Label & 30s Timer Badge
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "vs",
+                    color = NeonPlayerCyan,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                if (!isGameOver) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (turnTimeRemaining <= 5) Color(0xFFFF2A6D).copy(alpha = 0.25f) else NeonBackgroundCard.copy(alpha = 0.6f),
+                        border = BorderStroke(
+                            1.dp,
+                            if (turnTimeRemaining <= 5) Color(0xFFFF2A6D) else NeonPlayerCyan.copy(alpha = 0.5f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "⏱️ ${turnTimeRemaining}s",
+                                color = if (turnTimeRemaining <= 5) Color(0xFFFF2A6D) else Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
 
             // Player X / AI Section
             Column(horizontalAlignment = Alignment.CenterHorizontally) {

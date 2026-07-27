@@ -143,6 +143,8 @@ fun GameScreen(
                 playerOName = gameState.playerOName,
                 playerXName = gameState.playerXName,
                 isAiThinking = gameState.isAiThinking,
+                turnTimeRemaining = gameState.turnTimeRemaining,
+                isGameOver = gameState.isGameOver,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
 
@@ -167,12 +169,14 @@ fun GameScreen(
                 )
             }
 
-            // Bottom Controls Bar (Undo ↶, Hint 💡, Restart 🌀)
-            NeonBottomBar(
-                onUndoClick = onUndoClick,
-                onHintClick = onHintClick,
-                onRestartClick = onRestartClick
-            )
+            // Bottom Controls Bar (Undo ↶, Hint 💡, Restart 🌀) - Disabled for Online Multiplayer
+            if (gameState.gameMode != GameMode.ONLINE_MULTIPLAYER) {
+                NeonBottomBar(
+                    onUndoClick = onUndoClick,
+                    onHintClick = onHintClick,
+                    onRestartClick = onRestartClick
+                )
+            }
         }
 
         // Floating Toast for Incoming Opponent Message

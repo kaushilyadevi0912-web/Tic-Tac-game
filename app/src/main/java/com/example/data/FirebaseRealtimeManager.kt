@@ -159,13 +159,20 @@ class FirebaseRealtimeManager(context: Context) {
                     return
                 }
 
-                val updatedRoom = room.copy(playerGuestId = myPlayerId, guestName = cleanGuestName, status = "PLAYING")
+                val now = System.currentTimeMillis()
+                val updatedRoom = room.copy(
+                    playerGuestId = myPlayerId,
+                    guestName = cleanGuestName,
+                    status = "PLAYING",
+                    turnStartTime = now
+                )
                 notifyLocalFlow(roomCode, updatedRoom)
 
                 val updatedMap = mapOf<String, Any?>(
                     "playerGuestId" to myPlayerId,
                     "guestName" to cleanGuestName,
-                    "status" to "PLAYING"
+                    "status" to "PLAYING",
+                    "turnStartTime" to now
                 )
 
                 roomRef.updateChildren(updatedMap)
@@ -226,9 +233,15 @@ class FirebaseRealtimeManager(context: Context) {
         board: List<String>,
         nextPlayer: String,
         winner: String?,
-        isDraw: Boolean
+        isDraw: Boolean,
+        scoreO: Int? = null,
+        scoreX: Int? = null
     ) {
+        val now = System.currentTimeMillis()
         val current = inMemoryRooms[roomCode]
+        val newScoreO = scoreO ?: ((current?.scoreO ?: 0) + if (winner == "O") 1 else 0)
+        val newScoreX = scoreX ?: ((current?.scoreX ?: 0) + if (winner == "X") 1 else 0)
+
         if (current != null) {
             val status = if (winner != null || isDraw) "FINISHED" else "PLAYING"
             val updated = current.copy(
@@ -236,7 +249,10 @@ class FirebaseRealtimeManager(context: Context) {
                 activePlayer = nextPlayer,
                 winner = winner,
                 isDraw = isDraw,
-                status = status
+                status = status,
+                scoreO = newScoreO,
+                scoreX = newScoreX,
+                turnStartTime = now
             )
             notifyLocalFlow(roomCode, updated)
         }
@@ -248,7 +264,10 @@ class FirebaseRealtimeManager(context: Context) {
             "activePlayer" to nextPlayer,
             "winner" to winner,
             "isDraw" to isDraw,
-            "status" to status
+            "status" to status,
+            "scoreO" to newScoreO,
+            "scoreX" to newScoreX,
+            "turnStartTime" to now
         )
         ref.child(roomCode).updateChildren(updates)
     }

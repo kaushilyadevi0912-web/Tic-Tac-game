@@ -28,6 +28,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private var aiJob: Job? = null
     private var onlineObserverJob: Job? = null
+    private var turnTimerJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -69,14 +70,114 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             repository.playerOWinsFlow.collect { wins ->
-                _gameState.value = _gameState.value.copy(playerOScore = wins)
+                if (_gameState.value.gameMode != GameMode.ONLINE_MULTIPLAYER) {
+                    _gameState.value = _gameState.value.copy(playerOScore = wins)
+                }
             }
         }
         viewModelScope.launch {
             repository.playerXWinsFlow.collect { wins ->
-                _gameState.value = _gameState.value.copy(playerXScore = wins)
+                if (_gameState.value.gameMode != GameMode.ONLINE_MULTIPLAYER) {
+                    _gameState.value = _gameState.value.copy(playerXScore = wins)
+                }
             }
         }
+    }
+
+    private fun startTurnTimer() {
+        turnTimerJob?.cancel()
+        val current = _gameState.value
+        if (current.isGameOver) return
+
+        _gameState.value = current.copy(turnTimeRemaining = 30)
+
+        turnTimerJob = viewModelScope.launch {
+            var time = 30
+            while (time > 0) {
+                delay(1000)
+                val state = _gameState.value
+                if (state.isGameOver) break
+                time -= 1
+                _gameState.value = _gameState.value.copy(turnTimeRemaining = time)
+            }
+            val finalState = _gameState.value
+            if (!finalState.isGameOver && time <= 0) {
+                handleTurnTimeout()
+            }
+        }
+    }
+
+    private fun startTurnTimerForOnline(initialSeconds: Int) {
+        turnTimerJob?.cancel()
+        val current = _gameState.value
+        if (current.isGameOver) return
+
+        val startSecs = initialSeconds.coerceIn(0, 30)
+        _gameState.value = current.copy(turnTimeRemaining = startSecs)
+
+        turnTimerJob = viewModelScope.launch {
+            var time = startSecs
+            while (time > 0) {
+                delay(1000)
+                val state = _gameState.value
+                if (state.isGameOver) break
+                time -= 1
+                _gameState.value = _gameState.value.copy(turnTimeRemaining = time)
+            }
+            val finalState = _gameState.value
+            if (!finalState.isGameOver && time <= 0) {
+                handleTurnTimeout()
+            }
+        }
+    }
+
+    private fun handleTurnTimeout() {
+        turnTimerJob?.cancel()
+        val current = _gameState.value
+        if (current.isGameOver) return
+
+        val timedOutPlayer = current.activePlayer
+        val winnerSymbol = timedOutPlayer.other()
+
+        var newOScore = current.playerOScore
+        var newXScore = current.playerXScore
+
+        if (winnerSymbol == Symbol.O) {
+            newOScore++
+            viewModelScope.launch { repository.incrementPlayerOWins() }
+        } else {
+            newXScore++
+            viewModelScope.launch { repository.incrementPlayerXWins() }
+        }
+
+        if (current.gameMode == GameMode.VS_AI) {
+            if (winnerSymbol == Symbol.O) soundManager.playWin() else soundManager.playLose()
+        } else {
+            soundManager.playWin()
+        }
+        soundManager.triggerHapticWin()
+
+        if (current.gameMode == GameMode.ONLINE_MULTIPLAYER && current.onlineRoomCode != null) {
+            val strBoard = current.board.map { it?.name ?: "" }
+            firebaseManager.makeMove(
+                roomCode = current.onlineRoomCode,
+                board = strBoard,
+                nextPlayer = timedOutPlayer.name,
+                winner = winnerSymbol.name,
+                isDraw = false,
+                scoreO = newOScore,
+                scoreX = newXScore
+            )
+        }
+
+        _gameState.value = current.copy(
+            isGameOver = true,
+            winner = winnerSymbol,
+            isDraw = false,
+            playerOScore = newOScore,
+            playerXScore = newXScore,
+            turnTimeRemaining = 0
+        )
     }
 
     private fun cancelAiJob() {
@@ -86,6 +187,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun resetBoardForGridSize(size: Int) {
         cancelAiJob()
+        turnTimerJob?.cancel()
         val totalCells = size * size
         val targetStreak = GameEngine.defaultStreakTarget(size)
         _gameState.value = _gameState.value.copy(
@@ -99,8 +201,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             isDraw = false,
             hintCellIndex = null,
             moveHistory = emptyList(),
-            isAiThinking = false
+            isAiThinking = false,
+            turnTimeRemaining = 30
         )
+        startTurnTimer()
     }
 
     // --- ONLINE MULTIPLAYER ACTIONS ---
@@ -126,6 +230,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     myOnlineSymbol = Symbol.O,
                     playerOName = cleanHostName,
                     playerXName = "Player 2",
+                    playerOScore = 0,
+                    playerXScore = 0,
                     onlineStatus = "Waiting for Player B (Code: $roomCode)...",
                     board = List(totalCells) { null },
                     activePlayer = Symbol.O,
@@ -167,6 +273,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     myOnlineSymbol = Symbol.X,
                     playerOName = roomData.hostName.ifBlank { "Player 1" },
                     playerXName = cleanGuestName,
+                    playerOScore = roomData.scoreO,
+                    playerXScore = roomData.scoreX,
                     onlineStatus = "Connected to Room $roomCode!",
                     board = List(totalCells) { null },
                     activePlayer = Symbol.O,
@@ -202,6 +310,28 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             onlineRoomCode = null,
             onlineStatus = "",
             gameMode = GameMode.VS_PLAYER
+        )
+    }
+
+    fun exitGameToMenu() {
+        turnTimerJob?.cancel()
+        cancelAiJob()
+        if (_gameState.value.gameMode == GameMode.ONLINE_MULTIPLAYER) {
+            leaveOnlineRoom()
+        }
+        val current = _gameState.value
+        val totalCells = current.gridSize * current.gridSize
+        _gameState.value = current.copy(
+            board = List(totalCells) { null },
+            activePlayer = Symbol.O,
+            winningLine = null,
+            isGameOver = false,
+            winner = null,
+            isDraw = false,
+            hintCellIndex = null,
+            moveHistory = emptyList(),
+            isAiThinking = false,
+            turnTimeRemaining = 30
         )
     }
 
@@ -305,11 +435,19 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             current.latestChatToast
         }
 
+        val elapsedSecs = ((System.currentTimeMillis() - roomData.turnStartTime) / 1000).toInt()
+        val remainingSecs = (30 - elapsedSecs).coerceAtLeast(0)
+
+        val previousBoard = current.board
+        val previousActivePlayer = current.activePlayer
+
         _gameState.value = current.copy(
             gridSize = roomGridSize,
             winningStreakTarget = targetStreak,
             playerOName = hostName,
             playerXName = guestName,
+            playerOScore = roomData.scoreO,
+            playerXScore = roomData.scoreX,
             board = newBoard,
             activePlayer = activeSymbol,
             winningLine = winningLine,
@@ -320,8 +458,21 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             opponentMutedMic = opponentMuted,
             chatMessages = parsedMessages,
             unreadChatCount = unread,
-            latestChatToast = latestToast
+            latestChatToast = latestToast,
+            turnTimeRemaining = remainingSecs
         )
+
+        if (isGameOver) {
+            turnTimerJob?.cancel()
+        } else if (roomData.status == "PLAYING") {
+            if (remainingSecs <= 0) {
+                if (activeSymbol == current.myOnlineSymbol || current.isOnlineHost) {
+                    handleTurnTimeout()
+                }
+            } else if (previousBoard != newBoard || previousActivePlayer != activeSymbol || turnTimerJob?.isActive != true) {
+                startTurnTimerForOnline(remainingSecs)
+            }
+        }
     }
 
     fun sendChatMessage(text: String) {
@@ -448,6 +599,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             moveHistory = newHistory
         )
 
+        if (isGameOver) {
+            turnTimerJob?.cancel()
+        } else {
+            startTurnTimer()
+        }
+
         if (!isGameOver && current.gameMode == GameMode.VS_AI && nextPlayer == Symbol.X) {
             triggerAiMove()
         }
@@ -514,13 +671,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             isDraw = false,
             hintCellIndex = null,
             moveHistory = newHistory,
-            isAiThinking = false
+            isAiThinking = false,
+            turnTimeRemaining = 30
         )
+        startTurnTimer()
     }
 
     fun provideHint() {
         val state = _gameState.value
-        if (state.isGameOver || state.isAiThinking) return
+        if (state.gameMode == GameMode.ONLINE_MULTIPLAYER || state.isGameOver || state.isAiThinking) return
 
         soundManager.playHint()
         val bestMove = MinimaxAI.findBestMove(
@@ -538,12 +697,21 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun restartRound() {
         cancelAiJob()
+        turnTimerJob?.cancel()
         soundManager.playTap()
         val current = _gameState.value
         val totalCells = current.gridSize * current.gridSize
         if (current.gameMode == GameMode.ONLINE_MULTIPLAYER && current.onlineRoomCode != null) {
             val emptyBoard = List(totalCells) { "" }
-            firebaseManager.makeMove(current.onlineRoomCode, emptyBoard, "O", null, false)
+            firebaseManager.makeMove(
+                roomCode = current.onlineRoomCode,
+                board = emptyBoard,
+                nextPlayer = "O",
+                winner = null,
+                isDraw = false,
+                scoreO = current.playerOScore,
+                scoreX = current.playerXScore
+            )
             return
         }
 
@@ -557,8 +725,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             hintCellIndex = null,
             moveHistory = emptyList(),
             currentRound = current.currentRound + 1,
-            isAiThinking = false
+            isAiThinking = false,
+            turnTimeRemaining = 30
         )
+        startTurnTimer()
     }
 
     fun setGameMode(mode: GameMode) {
